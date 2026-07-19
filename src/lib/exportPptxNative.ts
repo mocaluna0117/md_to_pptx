@@ -1,5 +1,6 @@
 import PptxGen from 'pptxgenjs'
 import { parseSlides, type Para, type Run, type SlideModel } from './markdownModel'
+import { parseFrontMatter } from './frontmatter'
 
 /** 16:9 slide in inches. */
 const W = 10
@@ -30,6 +31,12 @@ export async function exportPptxNative(markdown: string, options: ExportOptions 
     throw new Error('スライドが見つかりませんでした。Markdown を入力してください。')
   }
 
+  // Honor the global background / text color directives so the style controls
+  // affect the editable export too.
+  const fm = parseFrontMatter(markdown).data
+  const bgColor = hexColor(fm.backgroundColor) ?? 'FFFFFF'
+  const textColor = hexColor(fm.color)
+
   // Preload every referenced image once (async), keyed by src.
   const cache = new Map<string, LoadedImage>()
   const srcs = [...new Set(models.flatMap((m) => m.images.map((i) => i.src)))]
@@ -46,13 +53,13 @@ export async function exportPptxNative(markdown: string, options: ExportOptions 
 
   models.forEach((model, idx) => {
     const slide = pptx.addSlide()
-    slide.background = { color: 'FFFFFF' }
+    slide.background = { color: bgColor }
 
     const { title, body } = extractTitle(model.paras)
     let y = MARGIN
 
     if (title) {
-      slide.addText(titleProps(title.runs), {
+      slide.addText(titleProps(title.runs, textColor), {
         x: MARGIN,
         y,
         w: CONTENT_W,
@@ -66,7 +73,7 @@ export async function exportPptxNative(markdown: string, options: ExportOptions 
     const hasImages = model.images.some((i) => cache.has(i.src))
     const hasMedia = hasImages || model.tables.length > 0
     const mediaBand = hasMedia ? 2.4 : 0
-    const bodyProps = buildBody(body)
+    const bodyProps = buildBody(body, textColor)
     const bodyH = Math.max(0.4, H - MARGIN - y - mediaBand)
 
     if (bodyProps.length > 0) {
@@ -91,8 +98,8 @@ function extractTitle(paras: Para[]): { title: Para | null; body: Para[] } {
   return { title: paras[idx], body: paras.filter((_, i) => i !== idx) }
 }
 
-function titleProps(runs: Run[]): PptxGen.TextProps[] {
-  const base: PptxGen.TextPropsOptions = { fontSize: 30, bold: true, color: '12203A' }
+function titleProps(runs: Run[], textColor?: string | null): PptxGen.TextProps[] {
+  const base: PptxGen.TextPropsOptions = { fontSize: 30, bold: true, color: textColor ?? '12203A' }
   const rs = runs.length ? runs : [{ text: ' ' }]
   return rs.map((r, i) => ({
     text: r.text,
@@ -132,10 +139,11 @@ function paraStyle(p: Para): PptxGen.TextPropsOptions {
   }
 }
 
-function buildBody(paras: Para[]): PptxGen.TextProps[] {
+function buildBody(paras: Para[], textColor?: string | null): PptxGen.TextProps[] {
   const out: PptxGen.TextProps[] = []
   for (const p of paras) {
     const base = paraStyle(p)
+    if (textColor && p.kind !== 'code') base.color = textColor
     const runs = p.runs.length ? p.runs : [{ text: ' ' } as Run]
     runs.forEach((r, i) => {
       out.push({
@@ -243,4 +251,11 @@ async function loadImage(src: string): Promise<LoadedImage | null> {
 function ensureExt(name: string): string {
   const trimmed = name.trim() || 'slides'
   return /\.pptx$/i.test(trimmed) ? trimmed : `${trimmed}.pptx`
+}
+
+/** Normalize `#RRGGBB` / `RRGGBB` to the bare uppercase hex pptxgenjs wants, else null. */
+function hexColor(v?: string): string | null {
+  if (!v) return null
+  const m = v.trim().match(/^#?([0-9a-fA-F]{6})$/)
+  return m ? m[1].toUpperCase() : null
 }
