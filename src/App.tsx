@@ -3,7 +3,6 @@ import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
 import { exportDeckToPptx } from './lib/exportDeck'
-import { parseFrontMatter, setFrontMatterKey } from './lib/frontmatter'
 import { deckFromMarkdown, type Deck } from './lib/deck'
 import VisualEditor from './components/VisualEditor'
 import './App.css'
@@ -15,11 +14,6 @@ const MODE_LABEL: Record<Mode, string> = {
   image: '画像（見た目そのまま）',
   native: '編集可能（テキスト）',
 }
-
-const THEMES = ['default', 'gaia', 'uncover'] as const
-
-const HEX_RE = /^#[0-9a-fA-F]{6}$/
-const asHex = (v: string | undefined, fallback: string) => (v && HEX_RE.test(v) ? v : fallback)
 
 const SAMPLE = `---
 marp: true
@@ -67,14 +61,7 @@ function App() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
 
   const preview = useMemo(() => renderPreview(markdown), [markdown])
-  const fm = useMemo(() => parseFrontMatter(markdown).data, [markdown])
   const exporting = status.kind === 'exporting'
-
-  const setDirective = (key: string, value: string | null) =>
-    setMarkdown((md) => setFrontMatterKey(md, key, value))
-
-  const resetColors = () =>
-    setMarkdown((md) => setFrontMatterKey(setFrontMatterKey(md, 'backgroundColor', null), 'color', null))
 
   function enterVisual() {
     setDeck((d) => d ?? deckFromMarkdown(markdown))
@@ -192,45 +179,6 @@ function App() {
 
         <section className="pane preview-pane">
           <div className="pane-head">プレビュー</div>
-          <div className="controls">
-            <label className="ctrl">
-              <span>テーマ</span>
-              <select value={fm.theme ?? 'default'} onChange={(e) => setDirective('theme', e.target.value)}>
-                {THEMES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="ctrl check">
-              <input
-                type="checkbox"
-                checked={fm.paginate === 'true'}
-                onChange={(e) => setDirective('paginate', e.target.checked ? 'true' : null)}
-              />
-              <span>ページ番号</span>
-            </label>
-            <label className="ctrl">
-              <span>背景</span>
-              <input
-                type="color"
-                value={asHex(fm.backgroundColor, '#ffffff')}
-                onChange={(e) => setDirective('backgroundColor', e.target.value)}
-              />
-            </label>
-            <label className="ctrl">
-              <span>文字</span>
-              <input
-                type="color"
-                value={asHex(fm.color, '#000000')}
-                onChange={(e) => setDirective('color', e.target.value)}
-              />
-            </label>
-            <button type="button" className="reset" onClick={resetColors} title="背景色・文字色を既定に戻す">
-              配色リセット
-            </button>
-          </div>
           <div className="preview-scroll">
             <style>{preview.css}</style>
             <div className="preview" dangerouslySetInnerHTML={{ __html: preview.html }} />

@@ -187,65 +187,6 @@
   background: var(--panel-2);
 }
 
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  padding: 8px 14px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  flex: 0 0 auto;
-}
-
-.ctrl {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.ctrl select {
-  font: inherit;
-  height: 28px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel-2);
-  color: var(--text);
-}
-
-.ctrl.check {
-  cursor: pointer;
-}
-
-.ctrl input[type='color'] {
-  width: 30px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel-2);
-  cursor: pointer;
-}
-
-.controls .reset {
-  font: inherit;
-  font-size: 12px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel-2);
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.controls .reset:hover {
-  color: var(--text);
-}
-
 .preview-scroll {
   flex: 1 1 auto;
   overflow: auto;
