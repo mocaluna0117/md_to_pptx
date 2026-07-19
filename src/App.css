@@ -430,3 +430,118 @@
   border-top: 1px solid var(--border);
   text-align: center;
 }
+
+/* ---- Visual editor: slide rail + thumbnails ---- */
+.vbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.vrail {
+  flex: 0 0 auto;
+  width: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.vthumb {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.vthumb-num {
+  width: 16px;
+  padding-top: 4px;
+  font-size: 12px;
+  text-align: right;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.vthumb.active .vthumb-num {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.vthumb-stage {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.vthumb.active .vthumb-stage {
+  outline: 2px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.vthumb-box {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 1px 2px;
+  color: #111;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+}
+
+.vthumb-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.vthumb:hover .vthumb-del {
+  opacity: 1;
+}
+
+.vthumb-del:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.vaddslide {
+  flex: 0 0 auto;
+  height: 34px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.vaddslide:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}

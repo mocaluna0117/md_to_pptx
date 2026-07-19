@@ -7,7 +7,7 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { SLIDE_W, SLIDE_H, newBox, newSlide, type Box, type Deck } from '../lib/deck'
+import { SLIDE_W, SLIDE_H, newBox, newSlide, type Box, type Deck, type Slide } from '../lib/deck'
 import { runsToHtml, htmlToRuns } from '../lib/richText'
 
 interface Props {
@@ -141,18 +141,23 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     patchSlide({ boxes: slide.boxes.filter((b) => b.id !== selectedId) })
     setSelectedId(null)
   }
+  function selectSlide(index: number) {
+    if (editingId) stopEditing()
+    setSelectedId(null)
+    setSi(index)
+  }
   function addSlide() {
     const s = newSlide(slide?.background ?? 'FFFFFF')
-    const slides = [...deck.slides.slice(0, slideIndex + 1), s, ...deck.slides.slice(slideIndex + 1)]
-    commit(slides)
+    commit([...deck.slides.slice(0, slideIndex + 1), s, ...deck.slides.slice(slideIndex + 1)])
+    setSelectedId(null)
     setSi(slideIndex + 1)
-    setSelectedId(null)
   }
-  function deleteSlide() {
+  function deleteSlideAt(index: number) {
     if (deck.slides.length <= 1) return
-    commit(deck.slides.filter((_, i) => i !== slideIndex))
-    setSi(Math.max(0, slideIndex - 1))
+    const next = index < slideIndex ? slideIndex - 1 : slideIndex
+    commit(deck.slides.filter((_, i) => i !== index))
     setSelectedId(null)
+    setSi(Math.max(0, Math.min(next, deck.slides.length - 2)))
   }
 
   function applyColor(hex: string) {
@@ -177,26 +182,6 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   return (
     <div className="veditor">
       <div className="vtoolbar">
-        <div className="vgroup">
-          <button onClick={() => setSi(Math.max(0, slideIndex - 1))} disabled={slideIndex === 0} title="前のスライド">
-            ‹
-          </button>
-          <span className="vcount">
-            {slideIndex + 1} / {deck.slides.length}
-          </span>
-          <button
-            onClick={() => setSi(Math.min(deck.slides.length - 1, slideIndex + 1))}
-            disabled={slideIndex === deck.slides.length - 1}
-            title="次のスライド"
-          >
-            ›
-          </button>
-          <button onClick={addSlide} title="スライドを追加">＋スライド</button>
-          <button onClick={deleteSlide} disabled={deck.slides.length <= 1} title="スライドを削除">
-            🗑
-          </button>
-        </div>
-
         <div className="vgroup">
           <label className="vfield" title="背景色">
             背景
@@ -256,7 +241,24 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
         </div>
       </div>
 
-      <div className="vstage-wrap">
+      <div className="vbody">
+        <div className="vrail" aria-label="スライド一覧">
+          {deck.slides.map((s, i) => (
+            <SlideThumb
+              key={s.id}
+              slide={s}
+              index={i}
+              active={i === slideIndex}
+              onSelect={() => selectSlide(i)}
+              onDelete={deck.slides.length > 1 ? () => deleteSlideAt(i) : undefined}
+            />
+          ))}
+          <button className="vaddslide" onClick={addSlide} title="スライドを追加">
+            ＋ スライド
+          </button>
+        </div>
+
+        <div className="vstage-wrap">
         <div
           ref={stageRef}
           className="vstage"
@@ -303,11 +305,63 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
             />
           )}
         </div>
+        </div>
       </div>
 
       <p className="vhint">
         ドラッグで移動・角をドラッグでリサイズ・ダブルクリックで文字編集・編集中に文字を選択して色変更
       </p>
+    </div>
+  )
+}
+
+interface SlideThumbProps {
+  slide: Slide
+  index: number
+  active: boolean
+  onSelect: () => void
+  onDelete?: () => void
+}
+
+/** Read-only miniature of a slide for the left rail. */
+function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProps) {
+  const width = 150
+  const ppi = width / SLIDE_W
+  return (
+    <div className={`vthumb${active ? ' active' : ''}`} onClick={onSelect}>
+      <span className="vthumb-num">{index + 1}</span>
+      <div
+        className="vthumb-stage"
+        style={{ width, height: (width * SLIDE_H) / SLIDE_W, background: `#${slide.background}` }}
+      >
+        {slide.boxes.map((box) => (
+          <div
+            key={box.id}
+            className="vthumb-box"
+            style={{
+              left: box.x * ppi,
+              top: box.y * ppi,
+              width: box.w * ppi,
+              height: box.h * ppi,
+              fontSize: (box.fontSize * ppi) / 72,
+              textAlign: box.align,
+            }}
+            dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs) }}
+          />
+        ))}
+      </div>
+      {onDelete && (
+        <button
+          className="vthumb-del"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+          title="スライドを削除"
+        >
+          ×
+        </button>
+      )}
     </div>
   )
 }
