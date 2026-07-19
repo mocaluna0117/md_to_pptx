@@ -12,6 +12,8 @@ export interface TextRun {
   italic?: boolean
   code?: boolean
   color?: string
+  /** Per-run font size in points; falls back to the box's fontSize when unset. */
+  fontSize?: number
 }
 
 export interface Box {

@@ -222,6 +222,54 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
 
   const selected = slide?.boxes.find((b) => b.id === selectedId) ?? null
 
+  function changeFontSize(delta: number) {
+    if (!selected) return
+    // While editing with a non-empty selection, resize only the selected text.
+    if (editingId === selected.id && applyFontDeltaToSelection(delta)) return
+    // Otherwise resize the whole box (base size + any explicitly-sized runs).
+    patchBox(selected.id, {
+      fontSize: clamp(selected.fontSize + delta, 8, 240),
+      runs: selected.runs.map((r) => (r.fontSize ? { ...r, fontSize: clamp(r.fontSize + delta, 8, 240) } : r)),
+    })
+  }
+
+  function applyFontDeltaToSelection(delta: number): boolean {
+    const el = editRef.current
+    if (!el || !selected) return false
+    el.focus()
+    const sel = window.getSelection()
+    if (savedRange.current && sel) {
+      sel.removeAllRanges()
+      sel.addRange(savedRange.current)
+    }
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false
+    const range = sel.getRangeAt(0)
+    if (!el.contains(range.commonAncestorContainer)) return false
+
+    const ppiNow = ppiRef.current
+    const startFs = effectiveFs(range.startContainer, el, selected.fontSize)
+
+    // Wrap the selection: bump already-sized runs relative to themselves, and
+    // set the wrapper's size for text that used the box's base size.
+    const frag = range.extractContents()
+    frag.querySelectorAll('[data-fs]').forEach((node) => {
+      const n = node as HTMLElement
+      setFs(n, clamp((Number(n.dataset.fs) || selected.fontSize) + delta, 8, 240), ppiNow)
+    })
+    const wrapper = document.createElement('span')
+    setFs(wrapper, clamp(startFs + delta, 8, 240), ppiNow)
+    wrapper.appendChild(frag)
+    range.insertNode(wrapper)
+
+    const nr = document.createRange()
+    nr.selectNodeContents(wrapper)
+    sel.removeAllRanges()
+    sel.addRange(nr)
+    savedRange.current = nr.cloneRange()
+    syncEditing()
+    return true
+  }
+
   if (!slide) return null
 
   return (
@@ -241,10 +289,10 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
 
         {selected && (
           <div className="vgroup">
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => patchBox(selected.id, { fontSize: Math.max(8, selected.fontSize - 2) })} title="文字を小さく">
+            <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} title="文字を小さく（範囲選択中は選択部分のみ）">
               A−
             </button>
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => patchBox(selected.id, { fontSize: selected.fontSize + 2 })} title="文字を大きく">
+            <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} title="文字を大きく（範囲選択中は選択部分のみ）">
               A＋
             </button>
             {(['left', 'center', 'right'] as const).map((a) => (
@@ -325,7 +373,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
               textAlign: box.align,
             }
             if (editingId === box.id) {
-              return <EditableBox key={box.id} box={box} style={style} editRef={editRef} onCommit={stopEditing} />
+              return <EditableBox key={box.id} box={box} style={style} ppi={ppi} editRef={editRef} onCommit={stopEditing} />
             }
             return (
               <div
@@ -338,7 +386,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
                   setSelectedId(box.id)
                   setEditingId(box.id)
                 }}
-                dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs) || '&nbsp;' }}
+                dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs, ppi) || '&nbsp;' }}
               />
             )
           })}
@@ -391,7 +439,7 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
               fontSize: (box.fontSize * ppi) / 72,
               textAlign: box.align,
             }}
-            dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs) }}
+            dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs, ppi) }}
           />
         ))}
       </div>
@@ -414,18 +462,19 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
 interface EditableBoxProps {
   box: Box
   style: CSSProperties
+  ppi: number
   editRef: MutableRefObject<HTMLDivElement | null>
   onCommit: () => void
 }
 
-function EditableBox({ box, style, editRef, onCommit }: EditableBoxProps) {
+function EditableBox({ box, style, ppi, editRef, onCommit }: EditableBoxProps) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const el = ref.current
     if (!el) return
     editRef.current = el
-    el.innerHTML = runsToHtml(box.runs)
+    el.innerHTML = runsToHtml(box.runs, ppi)
     el.focus()
     const range = document.createRange()
     range.selectNodeContents(el)
@@ -460,4 +509,20 @@ function EditableBox({ box, style, editRef, onCommit }: EditableBoxProps) {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n))
+}
+
+/** Store a font size (points) on an element as data-fs plus a scaled px style. */
+function setFs(el: HTMLElement, pt: number, ppi: number): void {
+  el.dataset.fs = String(pt)
+  el.style.fontSize = `${((pt * ppi) / 72).toFixed(2)}px`
+}
+
+/** Effective font size (points) at a node: nearest ancestor data-fs, else base. */
+function effectiveFs(node: Node, root: HTMLElement, base: number): number {
+  let el: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement)
+  while (el && el !== root) {
+    if (el.dataset?.fs) return Number(el.dataset.fs)
+    el = el.parentElement
+  }
+  return base
 }

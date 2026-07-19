@@ -52,6 +52,7 @@ function runsToTextProps(runs: Box['runs']): PptxGen.TextProps[] {
       bold: p.run.bold,
       italic: p.run.italic,
       color: p.run.color || undefined,
+      fontSize: p.run.fontSize || undefined,
       fontFace: p.run.code ? 'Courier New' : undefined,
       breakLine: p.endsLine || i === pieces.length - 1,
     },

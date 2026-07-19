@@ -1,7 +1,11 @@
 import { toHex, type TextRun } from './deck'
 
-/** Serialize runs to HTML for a contentEditable box. Newlines become <br>. */
-export function runsToHtml(runs: TextRun[]): string {
+/**
+ * Serialize runs to HTML for a contentEditable box. Newlines become <br>.
+ * Per-run font size is stored as `data-fs` (points) plus an inline px size
+ * scaled to the current stage (`ppi` = pixels per inch), so it renders correctly.
+ */
+export function runsToHtml(runs: TextRun[], ppi: number): string {
   if (runs.length === 0) return ''
   return runs
     .map((r) => {
@@ -9,7 +13,16 @@ export function runsToHtml(runs: TextRun[]): string {
       if (r.code) html = `<code>${html}</code>`
       if (r.italic) html = `<i>${html}</i>`
       if (r.bold) html = `<b>${html}</b>`
-      if (r.color) html = `<span style="color:#${r.color}">${html}</span>`
+      if (r.color || r.fontSize) {
+        const styles: string[] = []
+        if (r.color) styles.push(`color:#${r.color}`)
+        let dataAttr = ''
+        if (r.fontSize) {
+          styles.push(`font-size:${((r.fontSize * ppi) / 72).toFixed(2)}px`)
+          dataAttr = ` data-fs="${r.fontSize}"`
+        }
+        html = `<span${dataAttr} style="${styles.join(';')}">${html}</span>`
+      }
       return html
     })
     .join('')
@@ -20,6 +33,7 @@ interface Ctx {
   italic?: boolean
   code?: boolean
   color?: string
+  fontSize?: number
 }
 
 /** Parse the HTML produced by a contentEditable box back into styled runs. */
@@ -60,6 +74,8 @@ function walk(node: Node, ctx: Ctx, runs: TextRun[]): void {
     if (tag === 'CODE') next.code = true
     const color = colorOf(el)
     if (color) next.color = color
+    const fs = el.dataset?.fs
+    if (fs) next.fontSize = Number(fs)
 
     walk(el, next, runs)
   })
@@ -77,7 +93,7 @@ function colorOf(el: HTMLElement): string | undefined {
 
 function push(runs: TextRun[], text: string, ctx: Ctx): void {
   if (!text) return
-  runs.push({ text, bold: ctx.bold, italic: ctx.italic, code: ctx.code, color: ctx.color })
+  runs.push({ text, bold: ctx.bold, italic: ctx.italic, code: ctx.code, color: ctx.color, fontSize: ctx.fontSize })
 }
 
 function merge(runs: TextRun[]): TextRun[] {
@@ -89,7 +105,8 @@ function merge(runs: TextRun[]): TextRun[] {
       !!prev.bold === !!r.bold &&
       !!prev.italic === !!r.italic &&
       !!prev.code === !!r.code &&
-      prev.color === r.color
+      prev.color === r.color &&
+      prev.fontSize === r.fontSize
     ) {
       prev.text += r.text
     } else {
