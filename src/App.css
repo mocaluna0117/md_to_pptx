@@ -1,0 +1,176 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand .logo {
+  font-size: 20px;
+}
+
+.brand h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.filename {
+  display: inline-flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  height: 34px;
+}
+
+.filename input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  width: 130px;
+}
+
+.filename .ext {
+  color: var(--text-dim);
+}
+
+.export {
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.export:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.export:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* ---- Banner ---- */
+.banner {
+  padding: 10px 16px;
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+
+.banner.error {
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--danger);
+  border-bottom: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+/* ---- Panes ---- */
+.panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.editor-pane {
+  border-right: 1px solid var(--border);
+}
+
+.pane-head {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.editor {
+  flex: 1 1 auto;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  tab-size: 2;
+}
+
+.preview-pane {
+  background: var(--panel-2);
+}
+
+.preview-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 20px;
+}
+
+/* Marp slides scale to the pane width while keeping their aspect ratio. */
+.preview .marpit > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto 18px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  background: #fff;
+}
+
+/* ---- Responsive: stack on narrow screens ---- */
+@media (max-width: 760px) {
+  .panes {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .editor-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
