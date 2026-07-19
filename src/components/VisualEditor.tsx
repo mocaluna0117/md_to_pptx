@@ -39,6 +39,10 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   const slide = deck.slides[slideIndex]
   const siRef = useRef(slideIndex)
   siRef.current = slideIndex
+  const selectedIdRef = useRef(selectedId)
+  selectedIdRef.current = selectedId
+  const editingIdRef = useRef(editingId)
+  editingIdRef.current = editingId
 
   // Measure the stage to convert inches <-> pixels.
   useLayoutEffect(() => {
@@ -79,6 +83,28 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Delete the selected box with Backspace/Delete (but not while editing text
+  // or when a form field is focused).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') return
+      if (editingIdRef.current) return
+      const id = selectedIdRef.current
+      if (!id) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      e.preventDefault()
+      const d = deckRef.current
+      commit(
+        d.slides.map((s, i) => (i !== siRef.current ? s : { ...s, boxes: s.boxes.filter((b) => b.id !== id) })),
+      )
+      setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -309,7 +335,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       </div>
 
       <p className="vhint">
-        ドラッグで移動・角をドラッグでリサイズ・ダブルクリックで文字編集・編集中に文字を選択して色変更
+        ドラッグで移動・角をドラッグでリサイズ・ダブルクリックで文字編集・編集中に文字を選択して色変更・選択中に Backspace / Delete で削除
       </p>
     </div>
   )
