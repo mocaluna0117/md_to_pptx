@@ -40,6 +40,40 @@
   gap: 12px;
 }
 
+.mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.mode button {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  height: 34px;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.mode button + button {
+  border-left: 1px solid var(--border);
+}
+
+.mode button.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.mode button:disabled {
+  cursor: not-allowed;
+}
+
 .filename {
   display: inline-flex;
   align-items: center;
@@ -97,6 +131,13 @@
   background: rgba(255, 107, 107, 0.12);
   color: var(--danger);
   border-bottom: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.banner.info {
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
 }
 
 /* ---- Panes ---- */
