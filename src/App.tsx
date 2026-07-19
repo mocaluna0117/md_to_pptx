@@ -2,10 +2,14 @@ import { useMemo, useState } from 'react'
 import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
+import { exportDeckToPptx } from './lib/exportDeck'
 import { parseFrontMatter, setFrontMatterKey } from './lib/frontmatter'
+import { deckFromMarkdown, type Deck } from './lib/deck'
+import VisualEditor from './components/VisualEditor'
 import './App.css'
 
 type Mode = 'image' | 'native'
+type View = 'markdown' | 'visual'
 
 const MODE_LABEL: Record<Mode, string> = {
   image: '画像（見た目そのまま）',
@@ -58,6 +62,8 @@ function App() {
   const [markdown, setMarkdown] = useState(SAMPLE)
   const [fileName, setFileName] = useState('slides')
   const [mode, setMode] = useState<Mode>('image')
+  const [view, setView] = useState<View>('markdown')
+  const [deck, setDeck] = useState<Deck | null>(null)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
 
   const preview = useMemo(() => renderPreview(markdown), [markdown])
@@ -70,14 +76,28 @@ function App() {
   const resetColors = () =>
     setMarkdown((md) => setFrontMatterKey(setFrontMatterKey(md, 'backgroundColor', null), 'color', null))
 
+  function enterVisual() {
+    setDeck((d) => d ?? deckFromMarkdown(markdown))
+    setView('visual')
+  }
+
+  function regenerateDeck() {
+    if (window.confirm('現在の Markdown からスライドを作り直します。ビジュアル編集の変更は破棄されます。よろしいですか？')) {
+      setDeck(deckFromMarkdown(markdown))
+    }
+  }
+
   async function handleExport() {
     setStatus({ kind: 'exporting', done: 0, total: 0 })
-    const run = mode === 'image' ? exportPptx : exportPptxNative
+    const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
     try {
-      await run(markdown, {
-        fileName,
-        onProgress: (done, total) => setStatus({ kind: 'exporting', done, total }),
-      })
+      if (view === 'visual') {
+        if (!deck) throw new Error('スライドがありません。')
+        await exportDeckToPptx(deck, { fileName, onProgress })
+      } else {
+        const run = mode === 'image' ? exportPptx : exportPptxNative
+        await run(markdown, { fileName, onProgress })
+      }
       setStatus({ kind: 'idle' })
     } catch (err) {
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
@@ -92,22 +112,36 @@ function App() {
             🖥️
           </span>
           <h1>Marp → PPTX</h1>
+          <div className="view" role="group" aria-label="表示">
+            <button
+              type="button"
+              className={view === 'markdown' ? 'active' : ''}
+              onClick={() => setView('markdown')}
+            >
+              Markdown
+            </button>
+            <button type="button" className={view === 'visual' ? 'active' : ''} onClick={enterVisual}>
+              ビジュアル編集
+            </button>
+          </div>
         </div>
         <div className="actions">
-          <div className="mode" role="group" aria-label="変換方式">
-            {(['image', 'native'] as Mode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                className={mode === m ? 'active' : ''}
-                onClick={() => setMode(m)}
-                disabled={exporting}
-                title={MODE_LABEL[m]}
-              >
-                {MODE_LABEL[m]}
-              </button>
-            ))}
-          </div>
+          {view === 'markdown' && (
+            <div className="mode" role="group" aria-label="変換方式">
+              {(['image', 'native'] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={mode === m ? 'active' : ''}
+                  onClick={() => setMode(m)}
+                  disabled={exporting}
+                  title={MODE_LABEL[m]}
+                >
+                  {MODE_LABEL[m]}
+                </button>
+              ))}
+            </div>
+          )}
           <label className="filename">
             <input
               type="text"
@@ -129,9 +163,11 @@ function App() {
       </header>
 
       <div className="banner info">
-        {mode === 'image'
-          ? '画像方式：Marp の見た目をそのまま再現。PowerPoint 上では画像になり、テキスト編集はできません。'
-          : '編集可能方式：見出し・本文・箇条書き・コード・引用・表を編集可能なテキストに変換。テーマの再現は簡易です。'}
+        {view === 'visual'
+          ? 'ビジュアル編集：ボックスをドラッグで移動、ダブルクリックで文字編集、選択して色変更。書き出しは編集可能な PPTX です。'
+          : mode === 'image'
+            ? '画像方式：Marp の見た目をそのまま再現。PowerPoint 上では画像になり、テキスト編集はできません。'
+            : '編集可能方式：見出し・本文・箇条書き・コード・引用・表を編集可能なテキストに変換。テーマの再現は簡易です。'}
       </div>
 
       {status.kind === 'error' && (
@@ -140,8 +176,11 @@ function App() {
         </div>
       )}
 
-      <main className="panes">
-        <section className="pane editor-pane">
+      {view === 'visual' && deck ? (
+        <VisualEditor deck={deck} onChange={setDeck} onRegenerate={regenerateDeck} />
+      ) : (
+        <main className="panes">
+          <section className="pane editor-pane">
           <div className="pane-head">Markdown</div>
           <textarea
             className="editor"
@@ -197,7 +236,8 @@ function App() {
             <div className="preview" dangerouslySetInnerHTML={{ __html: preview.html }} />
           </div>
         </section>
-      </main>
+        </main>
+      )}
     </div>
   )
 }
