@@ -25,6 +25,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   const [ppi, setPpi] = useState(88) // pixels per inch of the stage
 
   const stageRef = useRef<HTMLDivElement>(null)
+  const railRef = useRef<HTMLDivElement>(null)
   const editRef = useRef<HTMLDivElement | null>(null)
   const savedRange = useRef<Range | null>(null)
 
@@ -86,27 +87,45 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Delete the selected box with Backspace/Delete (but not while editing text
-  // or when a form field is focused).
+  // Keyboard: arrow keys switch slides, Backspace/Delete removes the selected
+  // box — but never while editing text or when a form field is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Backspace' && e.key !== 'Delete') return
       if (editingIdRef.current) return
-      const id = selectedIdRef.current
-      if (!id) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      e.preventDefault()
-      const d = deckRef.current
-      commit(
-        d.slides.map((s, i) => (i !== siRef.current ? s : { ...s, boxes: s.boxes.filter((b) => b.id !== id) })),
-      )
-      setSelectedId(null)
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const len = deckRef.current.slides.length
+        const cur = siRef.current
+        const next = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? cur - 1 : cur + 1
+        const clamped = Math.max(0, Math.min(next, len - 1))
+        if (clamped !== cur) {
+          e.preventDefault()
+          setSelectedId(null)
+          setSi(clamped)
+        }
+        return
+      }
+
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        const id = selectedIdRef.current
+        if (!id) return
+        e.preventDefault()
+        const d = deckRef.current
+        commit(d.slides.map((s, i) => (i !== siRef.current ? s : { ...s, boxes: s.boxes.filter((b) => b.id !== id) })))
+        setSelectedId(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Keep the active thumbnail visible when navigating.
+  useEffect(() => {
+    railRef.current?.querySelector('.vthumb.active')?.scrollIntoView({ block: 'nearest' })
+  }, [slideIndex])
 
   // Track the current text selection while editing (for the color controls).
   useEffect(() => {
@@ -268,7 +287,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       </div>
 
       <div className="vbody">
-        <div className="vrail" aria-label="スライド一覧">
+        <div className="vrail" ref={railRef} aria-label="スライド一覧">
           {deck.slides.map((s, i) => (
             <SlideThumb
               key={s.id}
@@ -335,7 +354,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       </div>
 
       <p className="vhint">
-        ドラッグで移動・角をドラッグでリサイズ・ダブルクリックで文字編集・編集中に文字を選択して色変更・選択中に Backspace / Delete で削除
+        ↑↓←→ でスライド切替・ドラッグで移動・角をドラッグでリサイズ・ダブルクリックで文字編集・編集中に文字を選択して色変更・選択中に Backspace / Delete で削除
       </p>
     </div>
   )
