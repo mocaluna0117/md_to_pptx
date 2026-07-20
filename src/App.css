@@ -201,6 +201,24 @@
   flex: 0 0 auto;
 }
 
+.loadmd-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ext-hint {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .loadmd {
   font: inherit;
   font-size: 12px;
@@ -214,6 +232,8 @@
   background: var(--panel-2);
   color: var(--text);
   cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .loadmd:hover {
