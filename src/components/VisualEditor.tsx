@@ -373,7 +373,17 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
               textAlign: box.align,
             }
             if (editingId === box.id) {
-              return <EditableBox key={box.id} box={box} style={style} ppi={ppi} editRef={editRef} onCommit={stopEditing} />
+              return (
+                <EditableBox
+                  key={box.id}
+                  box={box}
+                  style={style}
+                  ppi={ppi}
+                  editRef={editRef}
+                  onSync={syncEditing}
+                  onCommit={stopEditing}
+                />
+              )
             }
             return (
               <div
@@ -464,11 +474,14 @@ interface EditableBoxProps {
   style: CSSProperties
   ppi: number
   editRef: MutableRefObject<HTMLDivElement | null>
+  onSync: () => void
   onCommit: () => void
 }
 
-function EditableBox({ box, style, ppi, editRef, onCommit }: EditableBoxProps) {
+function EditableBox({ box, style, ppi, editRef, onSync, onCommit }: EditableBoxProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const syncRef = useRef(onSync)
+  syncRef.current = onSync
 
   useEffect(() => {
     const el = ref.current
@@ -483,6 +496,8 @@ function EditableBox({ box, style, ppi, editRef, onCommit }: EditableBoxProps) {
     sel?.removeAllRanges()
     sel?.addRange(range)
     return () => {
+      // Commit the in-progress text before the box is torn down (e.g. tab switch).
+      syncRef.current()
       if (editRef.current === el) editRef.current = null
     }
     // Set initial HTML once when editing starts.
@@ -497,6 +512,7 @@ function EditableBox({ box, style, ppi, editRef, onCommit }: EditableBoxProps) {
       contentEditable
       suppressContentEditableWarning
       onPointerDown={(e) => e.stopPropagation()}
+      onBlur={onSync}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault()
