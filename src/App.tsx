@@ -102,8 +102,20 @@ function App() {
     setDeckDirty(true)
   }, [])
 
+  // The Markdown the current deck was built from (to auto-refresh when it changes).
+  const deckSourceRef = useRef<string | null>(null)
+
+  async function buildDeck() {
+    setDeck(await deckFromRenderedMarkdown(markdown))
+    deckSourceRef.current = markdown
+    setDeckDirty(false)
+  }
+
   async function enterVisual() {
-    if (!deck) setDeck(await deckFromRenderedMarkdown(markdown))
+    // Rebuild from the current Markdown unless there are unsaved visual edits.
+    if (!deck || (markdown !== deckSourceRef.current && !deckDirty)) {
+      await buildDeck()
+    }
     setView('visual')
   }
 
@@ -112,8 +124,7 @@ function App() {
     if (deck && deckDirty && !window.confirm('現在の Markdown からスライドを作り直します。ビジュアル編集の変更は上書きされます。よろしいですか？')) {
       return false
     }
-    setDeck(await deckFromRenderedMarkdown(markdown))
-    setDeckDirty(false)
+    await buildDeck()
     return true
   }
 
@@ -124,11 +135,18 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function importMarkdownFile(file: File) {
+    if (deckDirty && !window.confirm('ファイルを読み込むと、現在のビジュアル編集の変更は破棄されます。よろしいですか？')) {
+      return
+    }
     try {
       const text = await file.text()
       setMarkdown(text)
       const base = file.name.replace(/\.[^.]+$/, '')
       if (base) setFileName(base)
+      // New content: drop the old deck so entering the visual tab rebuilds fresh.
+      setDeck(null)
+      setDeckDirty(false)
+      deckSourceRef.current = null
       setView('markdown')
     } catch {
       setStatus({ kind: 'error', message: 'ファイルの読み込みに失敗しました。' })
