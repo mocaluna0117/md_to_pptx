@@ -296,6 +296,13 @@ function App() {
           </div>
         </div>
         <div className="actions">
+          <button
+            className="reset"
+            onClick={resetToDefault}
+            title="すべて初期状態（デフォルトのサンプル）に戻す"
+          >
+            🔄 初期化
+          </button>
           {view === 'markdown' && (
             <button
               className="apply"
@@ -396,13 +403,6 @@ function App() {
               <span>Markdown</span>
               <span className="loadmd-group">
                 <span className="ext-hint">対応: .md / .markdown / .txt</span>
-                <button
-                  className="loadmd"
-                  onClick={resetToDefault}
-                  title="すべて初期状態（デフォルトのサンプル）に戻す"
-                >
-                  🔄 初期化
-                </button>
                 <button
                   className="loadmd"
                   onClick={() => fileInputRef.current?.click()}
