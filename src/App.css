@@ -74,6 +74,39 @@
   cursor: not-allowed;
 }
 
+.fmt {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.fmt button {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  height: 34px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.fmt button + button {
+  border-left: 1px solid var(--border);
+}
+
+.fmt button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.fmt button:disabled {
+  cursor: not-allowed;
+}
+
 .filename {
   display: inline-flex;
   align-items: center;

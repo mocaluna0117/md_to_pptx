@@ -3,6 +3,7 @@ import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
 import { exportDeckToPptx } from './lib/exportDeck'
+import { exportMarkdownToPdf, exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
 import { deckFromRenderedMarkdown } from './lib/deckFromRender'
 import VisualEditor from './components/VisualEditor'
@@ -10,6 +11,7 @@ import './App.css'
 
 type Mode = 'image' | 'native'
 type View = 'markdown' | 'visual'
+type Format = 'pptx' | 'pdf'
 
 const STORAGE_KEY = 'md-to-pptx:v1'
 
@@ -76,6 +78,7 @@ function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
   const [mode, setMode] = useState<Mode>('image')
+  const [format, setFormat] = useState<Format>('pptx')
   const [view, setView] = useState<View>('markdown')
   const [deck, setDeck] = useState<Deck | null>(persisted.deck ?? null)
   // True when the visual deck has edits not derived from the current Markdown.
@@ -162,7 +165,14 @@ function App() {
     setStatus({ kind: 'exporting', done: 0, total: 0 })
     const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
     try {
-      if (view === 'visual') {
+      if (format === 'pdf') {
+        if (view === 'visual') {
+          if (!deck) throw new Error('スライドがありません。')
+          await exportDeckToPdf(deck, { fileName, onProgress })
+        } else {
+          await exportMarkdownToPdf(markdown, { fileName, onProgress })
+        }
+      } else if (view === 'visual') {
         if (!deck) throw new Error('スライドがありません。')
         await exportDeckToPptx(deck, { fileName, onProgress })
       } else {
@@ -197,7 +207,7 @@ function App() {
           </div>
         </div>
         <div className="actions">
-          {view === 'markdown' && (
+          {view === 'markdown' && format === 'pptx' && (
             <div className="mode" role="group" aria-label="変換方式">
               {(['image', 'native'] as Mode[]).map((m) => (
                 <button
@@ -222,6 +232,19 @@ function App() {
               ビジュアルに反映{deckDirty ? ' ●' : ''}
             </button>
           )}
+          <div className="fmt" role="group" aria-label="出力形式">
+            {(['pptx', 'pdf'] as Format[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={format === f ? 'active' : ''}
+                onClick={() => setFormat(f)}
+                disabled={exporting}
+              >
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
           <label className="filename">
             <input
               type="text"
@@ -230,14 +253,14 @@ function App() {
               spellCheck={false}
               aria-label="ファイル名"
             />
-            <span className="ext">.pptx</span>
+            <span className="ext">.{format}</span>
           </label>
           <button className="export" onClick={handleExport} disabled={exporting}>
             {exporting
               ? status.total > 0
                 ? `書き出し中 ${status.done}/${status.total}`
                 : '準備中…'
-              : 'PPTX を書き出す'}
+              : `${format.toUpperCase()} を書き出す`}
           </button>
         </div>
       </header>

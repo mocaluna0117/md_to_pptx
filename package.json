@@ -12,6 +12,7 @@
   "dependencies": {
     "@marp-team/marp-core": "^4.4.0",
     "html-to-image": "^1.11.13",
+    "jspdf": "^4.2.1",
     "markdown-it": "^14.3.0",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.7",
