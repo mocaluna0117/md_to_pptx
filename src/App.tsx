@@ -9,9 +9,8 @@ import { deckFromRenderedMarkdown } from './lib/deckFromRender'
 import VisualEditor from './components/VisualEditor'
 import './App.css'
 
-type Mode = 'image' | 'native'
 type View = 'markdown' | 'visual'
-type Format = 'pptx' | 'pdf'
+type ExportTarget = 'pptx-image' | 'pptx-native' | 'pptx-deck' | 'pdf'
 
 const STORAGE_KEY = 'md-to-pptx:v1'
 
@@ -31,11 +30,6 @@ function loadPersisted(): Persisted {
 }
 
 const persisted = loadPersisted()
-
-const MODE_LABEL: Record<Mode, string> = {
-  image: '画像（見た目そのまま）',
-  native: '編集可能（テキスト）',
-}
 
 const SAMPLE = `---
 marp: true
@@ -77,7 +71,6 @@ type Status =
 function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
-  const [mode, setMode] = useState<Mode>('image')
   const [view, setView] = useState<View>('markdown')
   const [deck, setDeck] = useState<Deck | null>(persisted.deck ?? null)
   // True when the visual deck has edits not derived from the current Markdown.
@@ -235,7 +228,6 @@ function App() {
     }
     setMarkdown(SAMPLE)
     setFileName('slides')
-    setMode('image')
     deckRef.current = null
     setDeck(null)
     setDeckDirty(false)
@@ -250,24 +242,31 @@ function App() {
     }
   }
 
-  async function handleExport(format: Format) {
+  async function runExport(target: ExportTarget) {
     setExportMenuOpen(false)
     setStatus({ kind: 'exporting', done: 0, total: 0 })
     const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
     try {
-      if (format === 'pdf') {
-        if (view === 'visual') {
+      switch (target) {
+        case 'pptx-image':
+          // Rasterize the preview at a higher scale so the slide image stays faithful.
+          await exportPptx(markdown, { fileName, pixelRatio: 3, onProgress })
+          break
+        case 'pptx-native':
+          await exportPptxNative(markdown, { fileName, onProgress })
+          break
+        case 'pptx-deck':
           if (!deck) throw new Error('スライドがありません。')
-          await exportDeckToPdf(deck, { fileName, onProgress })
-        } else {
-          await exportMarkdownToPdf(markdown, { fileName, onProgress })
-        }
-      } else if (view === 'visual') {
-        if (!deck) throw new Error('スライドがありません。')
-        await exportDeckToPptx(deck, { fileName, onProgress })
-      } else {
-        const run = mode === 'image' ? exportPptx : exportPptxNative
-        await run(markdown, { fileName, onProgress })
+          await exportDeckToPptx(deck, { fileName, onProgress })
+          break
+        case 'pdf':
+          if (view === 'visual') {
+            if (!deck) throw new Error('スライドがありません。')
+            await exportDeckToPdf(deck, { fileName, onProgress })
+          } else {
+            await exportMarkdownToPdf(markdown, { fileName, pixelRatio: 3, onProgress })
+          }
+          break
       }
       setStatus({ kind: 'idle' })
     } catch (err) {
@@ -297,22 +296,6 @@ function App() {
           </div>
         </div>
         <div className="actions">
-          {view === 'markdown' && (
-            <div className="mode" role="group" aria-label="変換方式">
-              {(['image', 'native'] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={mode === m ? 'active' : ''}
-                  onClick={() => setMode(m)}
-                  disabled={exporting}
-                  title={MODE_LABEL[m]}
-                >
-                  {MODE_LABEL[m]}
-                </button>
-              ))}
-            </div>
-          )}
           {view === 'markdown' && (
             <button
               className="apply"
@@ -347,10 +330,21 @@ function App() {
             </button>
             {exportMenuOpen && !exporting && (
               <div className="export-menu" role="menu">
-                <button role="menuitem" onClick={() => handleExport('pptx')}>
-                  PPTX で書き出す
-                </button>
-                <button role="menuitem" onClick={() => handleExport('pdf')}>
+                {view === 'visual' ? (
+                  <button role="menuitem" onClick={() => runExport('pptx-deck')}>
+                    PPTX（編集可能）で書き出す
+                  </button>
+                ) : (
+                  <>
+                    <button role="menuitem" onClick={() => runExport('pptx-image')}>
+                      PPTX（見た目そのまま）で書き出す
+                    </button>
+                    <button role="menuitem" onClick={() => runExport('pptx-native')}>
+                      PPTX（編集可能テキスト）で書き出す
+                    </button>
+                  </>
+                )}
+                <button role="menuitem" onClick={() => runExport('pdf')}>
                   PDF で書き出す
                 </button>
               </div>
@@ -362,9 +356,7 @@ function App() {
       <div className="banner info">
         {view === 'visual'
           ? 'ビジュアル編集：ボックスをドラッグで移動、ダブルクリックで文字編集、選択して色変更。書き出しは編集可能な PPTX です。'
-          : mode === 'image'
-            ? '画像方式：Marp の見た目をそのまま再現。PowerPoint 上では画像になり、テキスト編集はできません。'
-            : '編集可能方式：見出し・本文・箇条書き・コード・引用・表を編集可能なテキストに変換。テーマの再現は簡易です。'}
+          : 'Markdown を編集するとプレビューに反映されます。「書き出す ▾」から、見た目そのまま（画像）／編集可能テキストの PPTX、または PDF を選べます。'}
       </div>
 
       {view === 'markdown' && deckDirty && (
