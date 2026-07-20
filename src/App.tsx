@@ -313,10 +313,12 @@ function App() {
             </button>
           )}
           <label className="filename">
+            <span className="fn-label">ファイル名</span>
             <input
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
+              size={Math.min(Math.max(fileName.length + 2, 12), 40)}
               spellCheck={false}
               aria-label="ファイル名"
             />

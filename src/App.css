@@ -78,6 +78,7 @@
 }
 
 .filename {
+  position: relative;
   display: inline-flex;
   align-items: center;
   background: var(--panel-2);
@@ -85,6 +86,21 @@
   border-radius: 8px;
   padding: 0 10px;
   height: 34px;
+  min-width: 0;
+}
+
+/* "ファイル名" caption sitting on the top border (outlined-field notch). */
+.fn-label {
+  position: absolute;
+  top: -7px;
+  left: 8px;
+  padding: 0 4px;
+  background: var(--panel);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-dim);
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .filename input {
@@ -93,8 +109,11 @@
   outline: none;
   color: var(--text);
   font: inherit;
-  /* Wide enough to show a good number of characters; shrinks on narrow windows. */
-  width: clamp(160px, 22vw, 320px);
+  /* Width follows the `size` attribute (grows with the name); the char count is
+     capped in App.tsx, and this is a hard upper bound. */
+  width: auto;
+  min-width: 0;
+  max-width: 42ch;
 }
 
 .filename .ext {
