@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
@@ -9,6 +9,25 @@ import './App.css'
 
 type Mode = 'image' | 'native'
 type View = 'markdown' | 'visual'
+
+const STORAGE_KEY = 'md-to-pptx:v1'
+
+interface Persisted {
+  markdown?: string
+  fileName?: string
+  deck?: Deck | null
+  deckDirty?: boolean
+}
+
+function loadPersisted(): Persisted {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Persisted
+  } catch {
+    return {}
+  }
+}
+
+const persisted = loadPersisted()
 
 const MODE_LABEL: Record<Mode, string> = {
   image: '画像（見た目そのまま）',
@@ -53,25 +72,52 @@ type Status =
   | { kind: 'error'; message: string }
 
 function App() {
-  const [markdown, setMarkdown] = useState(SAMPLE)
-  const [fileName, setFileName] = useState('slides')
+  const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
+  const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
   const [mode, setMode] = useState<Mode>('image')
   const [view, setView] = useState<View>('markdown')
-  const [deck, setDeck] = useState<Deck | null>(null)
+  const [deck, setDeck] = useState<Deck | null>(persisted.deck ?? null)
+  // True when the visual deck has edits not derived from the current Markdown.
+  const [deckDirty, setDeckDirty] = useState<boolean>(persisted.deckDirty ?? false)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
 
   const preview = useMemo(() => renderPreview(markdown), [markdown])
   const exporting = status.kind === 'exporting'
+
+  // Persist Markdown + visual deck so a reload/close doesn't lose work.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty }))
+      } catch {
+        /* storage full or unavailable */
+      }
+    }, 300)
+    return () => clearTimeout(id)
+  }, [markdown, fileName, deck, deckDirty])
+
+  const handleDeckChange = useCallback((d: Deck) => {
+    setDeck(d)
+    setDeckDirty(true)
+  }, [])
 
   function enterVisual() {
     setDeck((d) => d ?? deckFromMarkdown(markdown))
     setView('visual')
   }
 
-  function regenerateDeck() {
-    if (window.confirm('現在の Markdown からスライドを作り直します。ビジュアル編集の変更は破棄されます。よろしいですか？')) {
-      setDeck(deckFromMarkdown(markdown))
+  /** Rebuild the deck from the current Markdown, confirming if edits would be lost. */
+  function rebuildFromMarkdown(): boolean {
+    if (deck && deckDirty && !window.confirm('現在の Markdown からスライドを作り直します。ビジュアル編集の変更は上書きされます。よろしいですか？')) {
+      return false
     }
+    setDeck(deckFromMarkdown(markdown))
+    setDeckDirty(false)
+    return true
+  }
+
+  function applyMarkdownToVisual() {
+    if (rebuildFromMarkdown()) setView('visual')
   }
 
   async function handleExport() {
@@ -129,6 +175,15 @@ function App() {
               ))}
             </div>
           )}
+          {view === 'markdown' && (
+            <button
+              className="apply"
+              onClick={applyMarkdownToVisual}
+              title="現在の Markdown からビジュアル編集を作成／更新します（ビジュアルの編集がある場合は上書き確認）"
+            >
+              ビジュアルに反映{deckDirty ? ' ●' : ''}
+            </button>
+          )}
           <label className="filename">
             <input
               type="text"
@@ -157,6 +212,12 @@ function App() {
             : '編集可能方式：見出し・本文・箇条書き・コード・引用・表を編集可能なテキストに変換。テーマの再現は簡易です。'}
       </div>
 
+      {view === 'markdown' && deckDirty && (
+        <div className="banner warn">
+          ● ビジュアル編集に変更があります。「ビジュアルに反映」を押すと Markdown の内容で上書きされます（変更は自動保存され、リロードしても保持されます）。
+        </div>
+      )}
+
       {status.kind === 'error' && (
         <div className="banner error" role="alert">
           ⚠️ {status.message}
@@ -164,7 +225,7 @@ function App() {
       )}
 
       {view === 'visual' && deck ? (
-        <VisualEditor deck={deck} onChange={setDeck} onRegenerate={regenerateDeck} />
+        <VisualEditor deck={deck} onChange={handleDeckChange} onRegenerate={rebuildFromMarkdown} />
       ) : (
         <main className="panes">
           <section className="pane editor-pane">

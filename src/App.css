@@ -140,6 +140,31 @@
   font-size: 13px;
 }
 
+.banner.warn {
+  background: rgba(240, 140, 0, 0.12);
+  color: #d9820a;
+  border-bottom: 1px solid rgba(240, 140, 0, 0.3);
+  font-size: 13px;
+}
+
+.apply {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.apply:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ---- Panes ---- */
 .panes {
   display: grid;
