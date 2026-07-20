@@ -3,7 +3,8 @@ import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
 import { exportDeckToPptx } from './lib/exportDeck'
-import { deckFromMarkdown, type Deck } from './lib/deck'
+import { type Deck } from './lib/deck'
+import { deckFromRenderedMarkdown } from './lib/deckFromRender'
 import VisualEditor from './components/VisualEditor'
 import './App.css'
 
@@ -101,23 +102,23 @@ function App() {
     setDeckDirty(true)
   }, [])
 
-  function enterVisual() {
-    setDeck((d) => d ?? deckFromMarkdown(markdown))
+  async function enterVisual() {
+    if (!deck) setDeck(await deckFromRenderedMarkdown(markdown))
     setView('visual')
   }
 
   /** Rebuild the deck from the current Markdown, confirming if edits would be lost. */
-  function rebuildFromMarkdown(): boolean {
+  async function rebuildFromMarkdown(): Promise<boolean> {
     if (deck && deckDirty && !window.confirm('現在の Markdown からスライドを作り直します。ビジュアル編集の変更は上書きされます。よろしいですか？')) {
       return false
     }
-    setDeck(deckFromMarkdown(markdown))
+    setDeck(await deckFromRenderedMarkdown(markdown))
     setDeckDirty(false)
     return true
   }
 
-  function applyMarkdownToVisual() {
-    if (rebuildFromMarkdown()) setView('visual')
+  async function applyMarkdownToVisual() {
+    if (await rebuildFromMarkdown()) setView('visual')
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)

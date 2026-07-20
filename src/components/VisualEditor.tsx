@@ -371,6 +371,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
               height: box.h * ppi,
               fontSize: (box.fontSize * ppi) / 72,
               textAlign: box.align,
+              color: box.color ? `#${box.color}` : undefined,
             }
             if (editingId === box.id) {
               return (
@@ -448,6 +449,7 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
               height: box.h * ppi,
               fontSize: (box.fontSize * ppi) / 72,
               textAlign: box.align,
+              color: box.color ? `#${box.color}` : undefined,
             }}
             dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs, ppi) }}
           />

@@ -27,6 +27,7 @@ export async function exportDeckToPptx(deck: Deck, options: ExportOptions = {}):
         w: clamp(box.w, 0.2, SLIDE_W),
         h: clamp(box.h, 0.2, SLIDE_H),
         fontSize: box.fontSize,
+        color: box.color || undefined,
         align: box.align,
         valign: 'top',
         fontFace: 'Arial',

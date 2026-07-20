@@ -25,6 +25,8 @@ export interface Box {
   /** Font size in points. */
   fontSize: number
   align: 'left' | 'center' | 'right'
+  /** Base text color (bare hex); individual runs may override it. */
+  color?: string
   runs: TextRun[]
 }
 
