@@ -78,12 +78,23 @@ function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
   const [mode, setMode] = useState<Mode>('image')
-  const [format, setFormat] = useState<Format>('pptx')
   const [view, setView] = useState<View>('markdown')
   const [deck, setDeck] = useState<Deck | null>(persisted.deck ?? null)
   // True when the visual deck has edits not derived from the current Markdown.
   const [deckDirty, setDeckDirty] = useState<boolean>(persisted.deckDirty ?? false)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const exportWrapRef = useRef<HTMLDivElement>(null)
+
+  // Close the export menu when clicking outside it.
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!exportWrapRef.current?.contains(e.target as Node)) setExportMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
+  }, [exportMenuOpen])
 
   const preview = useMemo(() => renderPreview(markdown), [markdown])
   const exporting = status.kind === 'exporting'
@@ -161,7 +172,8 @@ function App() {
     }
   }
 
-  async function handleExport() {
+  async function handleExport(format: Format) {
+    setExportMenuOpen(false)
     setStatus({ kind: 'exporting', done: 0, total: 0 })
     const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
     try {
@@ -207,7 +219,7 @@ function App() {
           </div>
         </div>
         <div className="actions">
-          {view === 'markdown' && format === 'pptx' && (
+          {view === 'markdown' && (
             <div className="mode" role="group" aria-label="変換方式">
               {(['image', 'native'] as Mode[]).map((m) => (
                 <button
@@ -232,19 +244,6 @@ function App() {
               ビジュアルに反映{deckDirty ? ' ●' : ''}
             </button>
           )}
-          <div className="fmt" role="group" aria-label="出力形式">
-            {(['pptx', 'pdf'] as Format[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                className={format === f ? 'active' : ''}
-                onClick={() => setFormat(f)}
-                disabled={exporting}
-              >
-                {f.toUpperCase()}
-              </button>
-            ))}
-          </div>
           <label className="filename">
             <input
               type="text"
@@ -253,15 +252,32 @@ function App() {
               spellCheck={false}
               aria-label="ファイル名"
             />
-            <span className="ext">.{format}</span>
           </label>
-          <button className="export" onClick={handleExport} disabled={exporting}>
-            {exporting
-              ? status.total > 0
-                ? `書き出し中 ${status.done}/${status.total}`
-                : '準備中…'
-              : `${format.toUpperCase()} を書き出す`}
-          </button>
+          <div className="export-wrap" ref={exportWrapRef}>
+            <button
+              className="export"
+              onClick={() => setExportMenuOpen((o) => !o)}
+              disabled={exporting}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+            >
+              {exporting
+                ? status.total > 0
+                  ? `書き出し中 ${status.done}/${status.total}`
+                  : '準備中…'
+                : '書き出す ▾'}
+            </button>
+            {exportMenuOpen && !exporting && (
+              <div className="export-menu" role="menu">
+                <button role="menuitem" onClick={() => handleExport('pptx')}>
+                  PPTX で書き出す
+                </button>
+                <button role="menuitem" onClick={() => handleExport('pdf')}>
+                  PDF で書き出す
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

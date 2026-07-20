@@ -74,37 +74,41 @@
   cursor: not-allowed;
 }
 
-.fmt {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--panel-2);
+.export-wrap {
+  position: relative;
 }
 
-.fmt button {
+.export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 180px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.export-menu button {
+  text-align: left;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  height: 34px;
-  padding: 0 12px;
+  font-size: 14px;
+  padding: 9px 12px;
+  border-radius: 7px;
   cursor: pointer;
 }
 
-.fmt button + button {
-  border-left: 1px solid var(--border);
-}
-
-.fmt button.active {
+.export-menu button:hover {
   background: var(--accent);
   color: #fff;
-}
-
-.fmt button:disabled {
-  cursor: not-allowed;
 }
 
 .filename {
