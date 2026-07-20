@@ -93,7 +93,8 @@
   outline: none;
   color: var(--text);
   font: inherit;
-  width: 130px;
+  /* Wide enough to show a good number of characters; shrinks on narrow windows. */
+  width: clamp(160px, 22vw, 320px);
 }
 
 .filename .ext {
