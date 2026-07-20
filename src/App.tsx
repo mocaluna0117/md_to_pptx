@@ -116,18 +116,72 @@ function App() {
     return () => clearTimeout(id)
   }, [markdown, fileName, deck, deckDirty])
 
-  const handleDeckChange = useCallback((d: Deck) => {
-    setDeck(d)
+  // ---- Undo / redo history for the visual deck ----
+  const deckRef = useRef(deck)
+  deckRef.current = deck
+  const undoRef = useRef<Deck[]>([])
+  const redoRef = useRef<Deck[]>([])
+  // Consecutive changes sharing the same non-null key (e.g. one drag) are one undo step.
+  const lastKeyRef = useRef<number | null>(null)
+  const [, setHistoryTick] = useState(0)
+  const bumpHistory = () => setHistoryTick((v) => v + 1)
+
+  function clearHistory() {
+    undoRef.current = []
+    redoRef.current = []
+    lastKeyRef.current = null
+    bumpHistory()
+  }
+
+  const handleDeckChange = useCallback((next: Deck, coalesceKey?: number) => {
+    const prev = deckRef.current
+    if (prev) {
+      const sameBurst = coalesceKey != null && coalesceKey === lastKeyRef.current
+      if (!sameBurst) {
+        undoRef.current.push(prev)
+        if (undoRef.current.length > 100) undoRef.current.shift()
+        redoRef.current = []
+      }
+      lastKeyRef.current = coalesceKey ?? null
+    }
+    deckRef.current = next
+    setDeck(next)
     setDeckDirty(true)
+    bumpHistory()
+  }, [])
+
+  const undo = useCallback(() => {
+    if (undoRef.current.length === 0) return
+    lastKeyRef.current = null
+    const prev = undoRef.current.pop() as Deck
+    if (deckRef.current) redoRef.current.push(deckRef.current)
+    deckRef.current = prev
+    setDeck(prev)
+    setDeckDirty(true)
+    bumpHistory()
+  }, [])
+
+  const redo = useCallback(() => {
+    if (redoRef.current.length === 0) return
+    lastKeyRef.current = null
+    const next = redoRef.current.pop() as Deck
+    if (deckRef.current) undoRef.current.push(deckRef.current)
+    deckRef.current = next
+    setDeck(next)
+    setDeckDirty(true)
+    bumpHistory()
   }, [])
 
   // The Markdown the current deck was built from (to auto-refresh when it changes).
   const deckSourceRef = useRef<string | null>(null)
 
   async function buildDeck() {
-    setDeck(await deckFromRenderedMarkdown(markdown))
+    const d = await deckFromRenderedMarkdown(markdown)
+    deckRef.current = d
+    setDeck(d)
     deckSourceRef.current = markdown
     setDeckDirty(false)
+    clearHistory()
   }
 
   async function enterVisual() {
@@ -163,9 +217,11 @@ function App() {
       const base = file.name.replace(/\.[^.]+$/, '')
       if (base) setFileName(base)
       // New content: drop the old deck so entering the visual tab rebuilds fresh.
+      deckRef.current = null
       setDeck(null)
       setDeckDirty(false)
       deckSourceRef.current = null
+      clearHistory()
       setView('markdown')
     } catch {
       setStatus({ kind: 'error', message: 'ファイルの読み込みに失敗しました。' })
@@ -180,9 +236,11 @@ function App() {
     setMarkdown(SAMPLE)
     setFileName('slides')
     setMode('image')
+    deckRef.current = null
     setDeck(null)
     setDeckDirty(false)
     deckSourceRef.current = null
+    clearHistory()
     setStatus({ kind: 'idle' })
     setView('markdown')
     try {
@@ -322,7 +380,15 @@ function App() {
       )}
 
       {view === 'visual' && deck ? (
-        <VisualEditor deck={deck} onChange={handleDeckChange} onRegenerate={rebuildFromMarkdown} />
+        <VisualEditor
+          deck={deck}
+          onChange={handleDeckChange}
+          onRegenerate={rebuildFromMarkdown}
+          onUndo={undo}
+          onRedo={redo}
+          canUndo={undoRef.current.length > 0}
+          canRedo={redoRef.current.length > 0}
+        />
       ) : (
         <main className="panes">
           <section

@@ -21,13 +21,18 @@ interface Rect {
 
 interface Props {
   deck: Deck
-  onChange: (deck: Deck) => void
+  /** coalesceKey groups consecutive changes (e.g. one drag) into a single undo step. */
+  onChange: (deck: Deck, coalesceKey?: number) => void
   onRegenerate: () => void
+  onUndo: () => void
+  onRedo: () => void
+  canUndo: boolean
+  canRedo: boolean
 }
 
 const SWATCHES = ['000000', 'E03131', '1971C2', '2F9E44', 'F08C00', '7048E8', '868E96', 'FFFFFF']
 
-export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
+export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onRedo, canUndo, canRedo }: Props) {
   const [si, setSi] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -44,8 +49,16 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   const ppiRef = useRef(ppi)
   ppiRef.current = ppi
   const dragRef = useRef<
-    null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; orig: { x: number; y: number; w: number; h: number } }
+    null | {
+      id: string
+      mode: 'move' | 'resize'
+      sx: number
+      sy: number
+      orig: { x: number; y: number; w: number; h: number }
+      key: number
+    }
   >(null)
+  const keyCounterRef = useRef(0)
 
   const slideIndex = Math.min(si, deck.slides.length - 1)
   const slide = deck.slides[slideIndex]
@@ -75,15 +88,9 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       const dx = (e.clientX - d.sx) / ppiRef.current
       const dy = (e.clientY - d.sy) / ppiRef.current
       if (d.mode === 'move') {
-        patchElement(d.id, {
-          x: clamp(d.orig.x + dx, 0, SLIDE_W - 0.2),
-          y: clamp(d.orig.y + dy, 0, SLIDE_H - 0.2),
-        })
+        patchElement(d.id, { x: clamp(d.orig.x + dx, 0, SLIDE_W - 0.2), y: clamp(d.orig.y + dy, 0, SLIDE_H - 0.2) }, d.key)
       } else {
-        patchElement(d.id, {
-          w: clamp(d.orig.w + dx, 0.3, SLIDE_W),
-          h: clamp(d.orig.h + dy, 0.3, SLIDE_H),
-        })
+        patchElement(d.id, { w: clamp(d.orig.w + dx, 0.3, SLIDE_W), h: clamp(d.orig.h + dy, 0.3, SLIDE_H) }, d.key)
       }
     }
     const onUp = () => {
@@ -105,6 +112,19 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       if (editingIdRef.current) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+      // Undo / redo (native undo handles text while editing, guarded above).
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault()
+        if (e.shiftKey) onRedo()
+        else onUndo()
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault()
+        onRedo()
+        return
+      }
 
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         const len = deckRef.current.slides.length
@@ -164,8 +184,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   }, [editingId])
 
   // ---- deck mutations ----
-  function commit(slides: Deck['slides']) {
-    onChange({ slides })
+  function commit(slides: Deck['slides'], coalesceKey?: number) {
+    onChange({ slides }, coalesceKey)
   }
   function patchBox(id: string, patch: Partial<Box>) {
     const d = deckRef.current
@@ -176,7 +196,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     )
   }
   /** Move/resize a box or an image (whichever matches the id). */
-  function patchElement(id: string, patch: Partial<Rect>) {
+  function patchElement(id: string, patch: Partial<Rect>, coalesceKey?: number) {
     const d = deckRef.current
     commit(
       d.slides.map((s, i) =>
@@ -188,6 +208,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
               images: (s.images ?? []).map((im) => (im.id === id ? { ...im, ...patch } : im)),
             },
       ),
+      coalesceKey,
     )
   }
   function patchSlide(patch: Partial<Deck['slides'][number]>) {
@@ -209,7 +230,14 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     e.stopPropagation()
     if (editingId) stopEditing()
     setSelectedId(el.id)
-    dragRef.current = { id: el.id, mode, sx: e.clientX, sy: e.clientY, orig: { x: el.x, y: el.y, w: el.w, h: el.h } }
+    dragRef.current = {
+      id: el.id,
+      mode,
+      sx: e.clientX,
+      sy: e.clientY,
+      orig: { x: el.x, y: el.y, w: el.w, h: el.h },
+      key: (keyCounterRef.current += 1),
+    }
   }
 
   function addBox() {
@@ -317,6 +345,15 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   return (
     <div className="veditor">
       <div className="vtoolbar">
+        <div className="vgroup">
+          <button onClick={onUndo} disabled={!canUndo} title="元に戻す (Ctrl/⌘+Z)">
+            ↶
+          </button>
+          <button onClick={onRedo} disabled={!canRedo} title="やり直す (Ctrl/⌘+Shift+Z)">
+            ↷
+          </button>
+        </div>
+
         <div className="vgroup">
           <label className="vfield" title="背景色">
             背景
