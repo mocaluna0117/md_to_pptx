@@ -172,6 +172,26 @@ function App() {
     }
   }
 
+  /** Reset everything to the default sample (the state before importing a file). */
+  function resetToDefault() {
+    if (!window.confirm('すべて初期状態に戻します。現在の Markdown とビジュアル編集は破棄されます。よろしいですか？')) {
+      return
+    }
+    setMarkdown(SAMPLE)
+    setFileName('slides')
+    setMode('image')
+    setDeck(null)
+    setDeckDirty(false)
+    deckSourceRef.current = null
+    setStatus({ kind: 'idle' })
+    setView('markdown')
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+
   async function handleExport(format: Format) {
     setExportMenuOpen(false)
     setStatus({ kind: 'exporting', done: 0, total: 0 })
@@ -318,6 +338,13 @@ function App() {
               <span>Markdown</span>
               <span className="loadmd-group">
                 <span className="ext-hint">対応: .md / .markdown / .txt</span>
+                <button
+                  className="loadmd"
+                  onClick={resetToDefault}
+                  title="すべて初期状態（デフォルトのサンプル）に戻す"
+                >
+                  🔄 初期化
+                </button>
                 <button
                   className="loadmd"
                   onClick={() => fileInputRef.current?.click()}
