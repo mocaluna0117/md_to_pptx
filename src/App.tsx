@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
@@ -120,6 +120,20 @@ function App() {
     if (rebuildFromMarkdown()) setView('visual')
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function importMarkdownFile(file: File) {
+    try {
+      const text = await file.text()
+      setMarkdown(text)
+      const base = file.name.replace(/\.[^.]+$/, '')
+      if (base) setFileName(base)
+      setView('markdown')
+    } catch {
+      setStatus({ kind: 'error', message: 'ファイルの読み込みに失敗しました。' })
+    }
+  }
+
   async function handleExport() {
     setStatus({ kind: 'exporting', done: 0, total: 0 })
     const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
@@ -228,15 +242,39 @@ function App() {
         <VisualEditor deck={deck} onChange={handleDeckChange} onRegenerate={rebuildFromMarkdown} />
       ) : (
         <main className="panes">
-          <section className="pane editor-pane">
-          <div className="pane-head">Markdown</div>
-          <textarea
-            className="editor"
-            value={markdown}
-            onChange={(e) => setMarkdown(e.target.value)}
-            spellCheck={false}
-          />
-        </section>
+          <section
+            className="pane editor-pane"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              const f = e.dataTransfer.files?.[0]
+              if (f && /\.(md|markdown|mdown|txt)$/i.test(f.name)) importMarkdownFile(f)
+            }}
+          >
+            <div className="pane-head">
+              <span>Markdown</span>
+              <button className="loadmd" onClick={() => fileInputRef.current?.click()} title=".md ファイルを読み込む">
+                📂 読み込み
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) importMarkdownFile(f)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+            <textarea
+              className="editor"
+              value={markdown}
+              onChange={(e) => setMarkdown(e.target.value)}
+              spellCheck={false}
+            />
+          </section>
 
         <section className="pane preview-pane">
           <div className="pane-head">プレビュー</div>

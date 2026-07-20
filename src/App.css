@@ -185,7 +185,12 @@
 }
 
 .pane-head {
-  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  min-height: 34px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.4px;
@@ -194,6 +199,26 @@
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+}
+
+.loadmd {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.loadmd:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .editor {
