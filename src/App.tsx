@@ -91,7 +91,12 @@ function App() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty }))
       } catch {
-        /* storage full or unavailable */
+        // Deck too big for storage (e.g. embedded images): keep at least the Markdown.
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deckDirty }))
+        } catch {
+          /* storage unavailable */
+        }
       }
     }, 300)
     return () => clearTimeout(id)

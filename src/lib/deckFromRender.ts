@@ -6,6 +6,7 @@ import {
   toHex,
   type Box,
   type Deck,
+  type ImageEl,
   type Slide,
   type TextRun,
 } from './deck'
@@ -45,7 +46,10 @@ export async function deckFromRenderedMarkdown(markdown: string): Promise<Deck> 
       for (const html of slides) {
         marpit.innerHTML = html.replace(/<script[\s\S]*?<\/script>/gi, '')
         const section = marpit.querySelector('section')
-        if (section) out.push(slideFromSection(section as HTMLElement))
+        if (section) {
+          await waitForImages(section as HTMLElement)
+          out.push(slideFromSection(section as HTMLElement))
+        }
       }
       return { slides: out.length ? out : [emptySlide()] }
     } finally {
@@ -64,7 +68,45 @@ function slideFromSection(section: HTMLElement): Slide {
     const box = boxFromBlock(child as HTMLElement, secRect)
     if (box) boxes.push(box)
   }
-  return { id: genId(), background, boxes }
+  return { id: genId(), background, boxes, images: imagesFromSection(section, secRect) }
+}
+
+function imagesFromSection(section: HTMLElement, secRect: DOMRect): ImageEl[] {
+  const out: ImageEl[] = []
+  for (const img of Array.from(section.querySelectorAll('img'))) {
+    const src = img.getAttribute('src') || img.currentSrc || ''
+    if (!src) continue
+    const rect = img.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) continue
+    out.push({
+      id: genId(),
+      x: round(pxToIn(rect.left - secRect.left)),
+      y: round(pxToIn(rect.top - secRect.top)),
+      w: round(pxToIn(rect.width)),
+      h: round(pxToIn(rect.height)),
+      src,
+    })
+  }
+  return out
+}
+
+async function waitForImages(root: HTMLElement): Promise<void> {
+  const imgs = Array.from(root.querySelectorAll('img'))
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve()
+            return
+          }
+          const done = () => resolve()
+          img.addEventListener('load', done, { once: true })
+          img.addEventListener('error', done, { once: true })
+          setTimeout(done, 2000)
+        }),
+    ),
+  )
 }
 
 function boxFromBlock(el: HTMLElement, secRect: DOMRect): Box | null {

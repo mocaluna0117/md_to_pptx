@@ -20,6 +20,15 @@ export async function exportDeckToPptx(deck: Deck, options: ExportOptions = {}):
   deck.slides.forEach((slide, idx) => {
     const s = pptx.addSlide()
     s.background = { color: slide.background || 'FFFFFF' }
+    for (const im of slide.images ?? []) {
+      const pos = {
+        x: clamp(im.x, 0, SLIDE_W),
+        y: clamp(im.y, 0, SLIDE_H),
+        w: clamp(im.w, 0.1, SLIDE_W),
+        h: clamp(im.h, 0.1, SLIDE_H),
+      }
+      s.addImage(im.src.startsWith('data:') ? { data: im.src, ...pos } : { path: im.src, ...pos })
+    }
     for (const box of slide.boxes) {
       s.addText(runsToTextProps(box.runs), {
         x: clamp(box.x, 0, SLIDE_W),

@@ -615,3 +615,26 @@
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* ---- Visual editor: images ---- */
+.vimg {
+  position: absolute;
+  object-fit: fill;
+  cursor: move;
+  user-select: none;
+  border: 1px dashed transparent;
+}
+
+.vimg:hover {
+  border-color: rgba(91, 140, 255, 0.5);
+}
+
+.vimg.selected {
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.25);
+}
+
+.vthumb-img {
+  position: absolute;
+  object-fit: fill;
+}

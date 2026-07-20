@@ -30,11 +30,22 @@ export interface Box {
   runs: TextRun[]
 }
 
+/** An image placed on a slide. `src` is a data URI or URL. */
+export interface ImageEl {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  src: string
+}
+
 export interface Slide {
   id: string
   /** Bare hex background, e.g. "FFFFFF". */
   background: string
   boxes: Box[]
+  images?: ImageEl[]
 }
 
 export interface Deck {
@@ -62,7 +73,7 @@ export function newBox(partial: Partial<Box> = {}): Box {
 }
 
 export function newSlide(background = 'FFFFFF'): Slide {
-  return { id: genId(), background, boxes: [] }
+  return { id: genId(), background, boxes: [], images: [] }
 }
 
 /** Convert "#RRGGBB" | "RRGGBB" | "rgb(r, g, b)" to bare uppercase hex, or null. */

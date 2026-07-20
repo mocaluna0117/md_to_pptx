@@ -10,6 +10,15 @@ import {
 import { SLIDE_W, SLIDE_H, newBox, newSlide, type Box, type Deck, type Slide } from '../lib/deck'
 import { runsToHtml, htmlToRuns } from '../lib/richText'
 
+/** Anything positioned on a slide (a text box or an image). */
+interface Rect {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 interface Props {
   deck: Deck
   onChange: (deck: Deck) => void
@@ -34,7 +43,9 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
   deckRef.current = deck
   const ppiRef = useRef(ppi)
   ppiRef.current = ppi
-  const dragRef = useRef<null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; orig: Box }>(null)
+  const dragRef = useRef<
+    null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; orig: { x: number; y: number; w: number; h: number } }
+  >(null)
 
   const slideIndex = Math.min(si, deck.slides.length - 1)
   const slide = deck.slides[slideIndex]
@@ -64,13 +75,13 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       const dx = (e.clientX - d.sx) / ppiRef.current
       const dy = (e.clientY - d.sy) / ppiRef.current
       if (d.mode === 'move') {
-        patchBox(d.id, {
+        patchElement(d.id, {
           x: clamp(d.orig.x + dx, 0, SLIDE_W - 0.2),
           y: clamp(d.orig.y + dy, 0, SLIDE_H - 0.2),
         })
       } else {
-        patchBox(d.id, {
-          w: clamp(d.orig.w + dx, 0.4, SLIDE_W),
+        patchElement(d.id, {
+          w: clamp(d.orig.w + dx, 0.3, SLIDE_W),
           h: clamp(d.orig.h + dy, 0.3, SLIDE_H),
         })
       }
@@ -113,7 +124,17 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
         if (!id) return
         e.preventDefault()
         const d = deckRef.current
-        commit(d.slides.map((s, i) => (i !== siRef.current ? s : { ...s, boxes: s.boxes.filter((b) => b.id !== id) })))
+        commit(
+          d.slides.map((s, i) =>
+            i !== siRef.current
+              ? s
+              : {
+                  ...s,
+                  boxes: s.boxes.filter((b) => b.id !== id),
+                  images: (s.images ?? []).filter((im) => im.id !== id),
+                },
+          ),
+        )
         setSelectedId(null)
       }
     }
@@ -154,6 +175,21 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
       ),
     )
   }
+  /** Move/resize a box or an image (whichever matches the id). */
+  function patchElement(id: string, patch: Partial<Rect>) {
+    const d = deckRef.current
+    commit(
+      d.slides.map((s, i) =>
+        i !== siRef.current
+          ? s
+          : {
+              ...s,
+              boxes: s.boxes.map((b) => (b.id === id ? { ...b, ...patch } : b)),
+              images: (s.images ?? []).map((im) => (im.id === id ? { ...im, ...patch } : im)),
+            },
+      ),
+    )
+  }
   function patchSlide(patch: Partial<Deck['slides'][number]>) {
     commit(deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, ...patch })))
   }
@@ -168,12 +204,12 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     setEditingId(null)
   }
 
-  function startDrag(box: Box, mode: 'move' | 'resize', e: ReactPointerEvent) {
-    if (editingId === box.id) return
+  function startDrag(el: Rect, mode: 'move' | 'resize', e: ReactPointerEvent) {
+    if (editingId === el.id) return
     e.stopPropagation()
     if (editingId) stopEditing()
-    setSelectedId(box.id)
-    dragRef.current = { id: box.id, mode, sx: e.clientX, sy: e.clientY, orig: box }
+    setSelectedId(el.id)
+    dragRef.current = { id: el.id, mode, sx: e.clientX, sy: e.clientY, orig: { x: el.x, y: el.y, w: el.w, h: el.h } }
   }
 
   function addBox() {
@@ -181,9 +217,13 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     commit(deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, boxes: [...s.boxes, box] })))
     setSelectedId(box.id)
   }
-  function deleteBox() {
+  function deleteSelected() {
     if (!selectedId) return
-    patchSlide({ boxes: slide.boxes.filter((b) => b.id !== selectedId) })
+    const id = selectedId
+    patchSlide({
+      boxes: slide.boxes.filter((b) => b.id !== id),
+      images: (slide.images ?? []).filter((im) => im.id !== id),
+    })
     setSelectedId(null)
   }
   function selectSlide(index: number) {
@@ -220,22 +260,24 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     syncEditing()
   }
 
-  const selected = slide?.boxes.find((b) => b.id === selectedId) ?? null
+  const selectedBox = slide?.boxes.find((b) => b.id === selectedId) ?? null
+  const selectedImage = slide?.images?.find((im) => im.id === selectedId) ?? null
+  const selectedEl: Rect | null = selectedBox ?? selectedImage ?? null
 
   function changeFontSize(delta: number) {
-    if (!selected) return
+    if (!selectedBox) return
     // While editing with a non-empty selection, resize only the selected text.
-    if (editingId === selected.id && applyFontDeltaToSelection(delta)) return
+    if (editingId === selectedBox.id && applyFontDeltaToSelection(delta)) return
     // Otherwise resize the whole box (base size + any explicitly-sized runs).
-    patchBox(selected.id, {
-      fontSize: clamp(selected.fontSize + delta, 8, 240),
-      runs: selected.runs.map((r) => (r.fontSize ? { ...r, fontSize: clamp(r.fontSize + delta, 8, 240) } : r)),
+    patchBox(selectedBox.id, {
+      fontSize: clamp(selectedBox.fontSize + delta, 8, 240),
+      runs: selectedBox.runs.map((r) => (r.fontSize ? { ...r, fontSize: clamp(r.fontSize + delta, 8, 240) } : r)),
     })
   }
 
   function applyFontDeltaToSelection(delta: number): boolean {
     const el = editRef.current
-    if (!el || !selected) return false
+    if (!el || !selectedBox) return false
     el.focus()
     const sel = window.getSelection()
     if (savedRange.current && sel) {
@@ -247,14 +289,14 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
     if (!el.contains(range.commonAncestorContainer)) return false
 
     const ppiNow = ppiRef.current
-    const startFs = effectiveFs(range.startContainer, el, selected.fontSize)
+    const startFs = effectiveFs(range.startContainer, el, selectedBox.fontSize)
 
     // Wrap the selection: bump already-sized runs relative to themselves, and
     // set the wrapper's size for text that used the box's base size.
     const frag = range.extractContents()
     frag.querySelectorAll('[data-fs]').forEach((node) => {
       const n = node as HTMLElement
-      setFs(n, clamp((Number(n.dataset.fs) || selected.fontSize) + delta, 8, 240), ppiNow)
+      setFs(n, clamp((Number(n.dataset.fs) || selectedBox.fontSize) + delta, 8, 240), ppiNow)
     })
     const wrapper = document.createElement('span')
     setFs(wrapper, clamp(startFs + delta, 8, 240), ppiNow)
@@ -287,26 +329,32 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
           <button onClick={addBox} title="テキストボックスを追加">＋ボックス</button>
         </div>
 
-        {selected && (
+        {selectedEl && (
           <div className="vgroup">
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} title="文字を小さく（範囲選択中は選択部分のみ）">
-              A−
+            {selectedBox && (
+              <>
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} title="文字を小さく（範囲選択中は選択部分のみ）">
+                  A−
+                </button>
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} title="文字を大きく（範囲選択中は選択部分のみ）">
+                  A＋
+                </button>
+                {(['left', 'center', 'right'] as const).map((a) => (
+                  <button
+                    key={a}
+                    onMouseDown={(e) => e.preventDefault()}
+                    className={selectedBox.align === a ? 'active' : ''}
+                    onClick={() => patchBox(selectedBox.id, { align: a })}
+                    title={`揃え: ${a}`}
+                  >
+                    {a === 'left' ? '⤙' : a === 'center' ? '≡' : '⤚'}
+                  </button>
+                ))}
+              </>
+            )}
+            <button onClick={deleteSelected} title={selectedBox ? 'ボックスを削除' : '画像を削除'}>
+              🗑{selectedBox ? 'ボックス' : '画像'}
             </button>
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} title="文字を大きく（範囲選択中は選択部分のみ）">
-              A＋
-            </button>
-            {(['left', 'center', 'right'] as const).map((a) => (
-              <button
-                key={a}
-                onMouseDown={(e) => e.preventDefault()}
-                className={selected.align === a ? 'active' : ''}
-                onClick={() => patchBox(selected.id, { align: a })}
-                title={`揃え: ${a}`}
-              >
-                {a === 'left' ? '⤙' : a === 'center' ? '≡' : '⤚'}
-              </button>
-            ))}
-            <button onClick={deleteBox} title="ボックスを削除">🗑ボックス</button>
           </div>
         )}
 
@@ -363,6 +411,17 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
             }
           }}
         >
+          {(slide.images ?? []).map((im) => (
+            <img
+              key={im.id}
+              className={`vimg${selectedId === im.id ? ' selected' : ''}`}
+              src={im.src}
+              alt=""
+              draggable={false}
+              style={{ left: im.x * ppi, top: im.y * ppi, width: im.w * ppi, height: im.h * ppi }}
+              onPointerDown={(e) => startDrag(im, 'move', e)}
+            />
+          ))}
           {slide.boxes.map((box) => {
             const style: CSSProperties = {
               left: box.x * ppi,
@@ -401,11 +460,11 @@ export default function VisualEditor({ deck, onChange, onRegenerate }: Props) {
               />
             )
           })}
-          {selected && editingId !== selected.id && (
+          {selectedEl && editingId !== selectedEl.id && (
             <div
               className="vresize"
-              style={{ left: (selected.x + selected.w) * ppi - 7, top: (selected.y + selected.h) * ppi - 7 }}
-              onPointerDown={(e) => startDrag(selected, 'resize', e)}
+              style={{ left: (selectedEl.x + selectedEl.w) * ppi - 7, top: (selectedEl.y + selectedEl.h) * ppi - 7 }}
+              onPointerDown={(e) => startDrag(selectedEl, 'resize', e)}
             />
           )}
         </div>
@@ -438,6 +497,15 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
         className="vthumb-stage"
         style={{ width, height: (width * SLIDE_H) / SLIDE_W, background: `#${slide.background}` }}
       >
+        {(slide.images ?? []).map((im) => (
+          <img
+            key={im.id}
+            className="vthumb-img"
+            src={im.src}
+            alt=""
+            style={{ left: im.x * ppi, top: im.y * ppi, width: im.w * ppi, height: im.h * ppi }}
+          />
+        ))}
         {slide.boxes.map((box) => (
           <div
             key={box.id}
