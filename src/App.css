@@ -15,6 +15,9 @@
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  /* Keep the header (and its export dropdown) above the editor toolbar below. */
+  position: relative;
+  z-index: 30;
 }
 
 .brand {
