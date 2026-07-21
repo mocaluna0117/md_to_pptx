@@ -355,14 +355,6 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
         </div>
 
         <div className="vgroup">
-          <label className="vfield" title="背景色">
-            背景
-            <input
-              type="color"
-              value={`#${slide.background}`}
-              onChange={(e) => patchSlide({ background: e.target.value.slice(1).toUpperCase() })}
-            />
-          </label>
           <button onClick={addBox} title="テキストボックスを追加">＋ボックス</button>
         </div>
 

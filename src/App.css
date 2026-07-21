@@ -437,15 +437,6 @@
   text-align: center;
 }
 
-.vfield {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.vfield input[type='color'],
 .vcolors input[type='color'] {
   width: 28px;
   height: 26px;
