@@ -7,7 +7,7 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { SLIDE_W, SLIDE_H, newBox, newSlide, newTable, type Box, type Deck, type Slide, type TableEl } from '../lib/deck'
+import { SLIDE_W, SLIDE_H, newBox, newSlide, newTable, tableColFractions, type Box, type Deck, type Slide, type TableEl } from '../lib/deck'
 import { runsToHtml, htmlToRuns } from '../lib/richText'
 
 /** Anything positioned on a slide (a text box, an image, or a table). */
@@ -96,6 +96,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     }
   >(null)
   const keyCounterRef = useRef(0)
+  // Column-width drag (table id + which internal boundary).
+  const colDragRef = useRef<null | { id: string; index: number; sx: number; base: number[]; key: number }>(null)
 
   const slideIndex = Math.min(si, deck.slides.length - 1)
   const slide = deck.slides[slideIndex]
@@ -122,6 +124,21 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   // Persistent drag/resize listeners.
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
+      const cd = colDragRef.current
+      if (cd) {
+        const tb = (deckRef.current.slides[siRef.current].tables ?? []).find((t) => t.id === cd.id)
+        if (!tb) return
+        const dfr = (e.clientX - cd.sx) / (tb.w * ppiRef.current)
+        const i = cd.index
+        const pair = cd.base[i] + cd.base[i + 1]
+        const min = 0.05
+        const fi = clamp(cd.base[i] + dfr, min, pair - min)
+        const next = cd.base.slice()
+        next[i] = fi
+        next[i + 1] = pair - fi
+        patchTable(cd.id, { colFr: next }, cd.key)
+        return
+      }
       const d = dragRef.current
       if (!d) return
       const dx = (e.clientX - d.sx) / ppiRef.current
@@ -134,6 +151,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     }
     const onUp = () => {
       dragRef.current = null
+      colDragRef.current = null
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -252,12 +270,13 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
       coalesceKey,
     )
   }
-  function patchTable(id: string, patch: Partial<TableEl>) {
+  function patchTable(id: string, patch: Partial<TableEl>, coalesceKey?: number) {
     const d = deckRef.current
     commit(
       d.slides.map((s, i) =>
         i !== siRef.current ? s : { ...s, tables: (s.tables ?? []).map((t) => (t.id === id ? { ...t, ...patch } : t)) },
       ),
+      coalesceKey,
     )
   }
   /** Write a single edited table cell back into the model (no-op if unchanged). */
@@ -311,6 +330,11 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     if (editingId) stopEditing()
     setSelectedId(id)
     setEditingCell({ id, r, c })
+  }
+  function startColDrag(tb: TableEl, index: number, e: ReactPointerEvent) {
+    e.stopPropagation()
+    setSelectedId(tb.id)
+    colDragRef.current = { id: tb.id, index, sx: e.clientX, base: tableColFractions(tb), key: (keyCounterRef.current += 1) }
   }
   function deleteSelected() {
     if (!selectedId) return
@@ -532,7 +556,9 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
             }
           }}
         >
-          {(slide.tables ?? []).map((tb) => (
+          {(slide.tables ?? []).map((tb) => {
+            const fractions = tableColFractions(tb)
+            return (
             <div
               key={tb.id}
               className={`vtable${selectedId === tb.id ? ' selected' : ''}`}
@@ -540,6 +566,11 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               onPointerDown={(e) => startDrag(tb, 'move', e)}
             >
               <table className="vtable-grid">
+                <colgroup>
+                  {fractions.map((f, i) => (
+                    <col key={i} style={{ width: `${f * 100}%` }} />
+                  ))}
+                </colgroup>
                 <tbody>
                   {tb.rows.map((row, r) => (
                     <tr key={r}>
@@ -571,8 +602,21 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                   ))}
                 </tbody>
               </table>
+              {selectedId === tb.id &&
+                fractions.slice(0, -1).map((_, i) => {
+                  const boundary = fractions.slice(0, i + 1).reduce((a, b) => a + b, 0)
+                  return (
+                    <div
+                      key={`col-${i}`}
+                      className="vcolresize"
+                      style={{ left: boundary * tb.w * ppi }}
+                      onPointerDown={(e) => startColDrag(tb, i, e)}
+                    />
+                  )
+                })}
             </div>
-          ))}
+            )
+          })}
           {(slide.images ?? []).map((im) => (
             <img
               key={im.id}
@@ -692,6 +736,11 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
             style={{ left: tb.x * ppi, top: tb.y * ppi, width: tb.w * ppi, height: tb.h * ppi, fontSize: (tb.fontSize * ppi) / 72 }}
           >
             <table>
+              <colgroup>
+                {tableColFractions(tb).map((f, i) => (
+                  <col key={i} style={{ width: `${f * 100}%` }} />
+                ))}
+              </colgroup>
               <tbody>
                 {tb.rows.map((row, r) => (
                   <tr key={r}>

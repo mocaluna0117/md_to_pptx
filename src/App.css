@@ -795,6 +795,30 @@
   background: #fff;
 }
 
+/* Drag strip on an internal column boundary (shown when the table is selected). */
+.vcolresize {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 9px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  z-index: 3;
+}
+.vcolresize::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 100%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+.vcolresize:hover::after {
+  background: var(--accent);
+}
+
 /* ---- Tables (thumbnail) ---- */
 .vthumb-table {
   position: absolute;

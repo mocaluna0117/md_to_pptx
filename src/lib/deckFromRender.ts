@@ -96,6 +96,15 @@ function tablesFromSection(section: HTMLElement, secRect: DOMRect): TableEl[] {
     }
     if (rows.length === 0) continue
 
+    // Column width fractions from the rendered first row.
+    let colFr: number[] | undefined
+    const firstRow = table.querySelector(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
+    if (firstRow) {
+      const widths = Array.from(firstRow.children).map((c) => c.getBoundingClientRect().width)
+      const sum = widths.reduce((a, b) => a + b, 0)
+      if (sum > 0) colFr = widths.map((w) => round(w / sum))
+    }
+
     const fontSize = round(pxToPt(parseFloat(getComputedStyle(table).fontSize) || 18))
     out.push({
       id: genId(),
@@ -106,6 +115,7 @@ function tablesFromSection(section: HTMLElement, secRect: DOMRect): TableEl[] {
       rows,
       header,
       fontSize,
+      colFr,
     })
   }
   return out

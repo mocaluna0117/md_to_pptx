@@ -52,6 +52,19 @@ export interface TableEl {
   header: boolean
   /** Font size in points. */
   fontSize: number
+  /** Per-column width fractions (sum ≈ 1); falls back to equal columns. */
+  colFr?: number[]
+}
+
+/** Normalized per-column width fractions for a table (equal columns as fallback). */
+export function tableColFractions(tb: TableEl): number[] {
+  const cols = Math.max(1, ...tb.rows.map((r) => r.length))
+  const fr = tb.colFr
+  if (fr && fr.length === cols) {
+    const sum = fr.reduce((a, b) => a + b, 0)
+    if (sum > 0) return fr.map((f) => f / sum)
+  }
+  return Array(cols).fill(1 / cols)
 }
 
 export interface Slide {
