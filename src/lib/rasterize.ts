@@ -20,9 +20,20 @@ export interface RasterizeOptions {
 
 async function toDataUrl(el: HTMLElement, w: number, h: number, pixelRatio: number, jpeg: boolean): Promise<string> {
   const common = { width: w, height: h, pixelRatio, cacheBust: true }
+  // JPEG has no alpha, so it needs an opaque backdrop. html-to-image's
+  // `backgroundColor` both fills the canvas AND is written as an inline style on
+  // the captured node, so it must be the element's OWN background — otherwise it
+  // overrides a custom slide background (e.g. a color set in the visual editor).
   return jpeg
-    ? htmlToImage.toJpeg(el, { ...common, quality: 0.92, backgroundColor: '#ffffff' })
+    ? htmlToImage.toJpeg(el, { ...common, quality: 0.92, backgroundColor: effectiveBg(el) })
     : htmlToImage.toPng(el, common)
+}
+
+/** The element's computed background color, or white if it's transparent. */
+function effectiveBg(el: HTMLElement): string {
+  const c = getComputedStyle(el).backgroundColor
+  if (!c || c === 'transparent' || c === 'rgba(0, 0, 0, 0)') return '#ffffff'
+  return c
 }
 
 /** Marp renders each slide at 1280x720; SLIDE_W inches maps to 1280px. */
