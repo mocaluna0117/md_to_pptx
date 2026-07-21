@@ -401,13 +401,13 @@
    instead of the browser's ~1.5s. Anchored to the left edge. The tooltip lives
    on the element carrying [data-tip]; for buttons that can be disabled it sits
    on a .vtipwrap wrapper, since disabled buttons never receive :hover. */
-.vtoolbar [data-tip] {
+[data-tip] {
   position: relative;
 }
 .vtipwrap {
   display: inline-flex;
 }
-.vtoolbar [data-tip]::after {
+[data-tip]::after {
   content: attr(data-tip);
   position: absolute;
   top: calc(100% + 6px);
@@ -428,11 +428,13 @@
   transition-delay: 0s;
   z-index: 60;
 }
-.vtoolbar .vgrow [data-tip]::after {
+/* Right-anchor tooltips whose button hugs the right edge, so they stay on-screen. */
+.vtoolbar .vgrow [data-tip]::after,
+.md-inner .loadmd[data-tip]::after {
   left: auto;
   right: 0;
 }
-.vtoolbar [data-tip]:hover::after {
+[data-tip]:hover::after {
   opacity: 1;
   transition-delay: 0.5s;
 }

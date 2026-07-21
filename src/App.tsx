@@ -401,7 +401,8 @@ function App() {
               <button
                 className="loadmd"
                 onClick={() => fileInputRef.current?.click()}
-                title="Markdown ファイルをインポート（対応: .md / .markdown / .txt）"
+                data-tip="対応: .md / .markdown / .txt"
+                aria-label="Markdown ファイルをインポート（対応: .md / .markdown / .txt）"
               >
                 📂 ファイルをインポート
               </button>
