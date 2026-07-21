@@ -381,6 +381,10 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     <div className="veditor">
       <div className="vtoolbar">
         <div className="vgroup">
+          <button onClick={addSlide} data-tip="スライドを追加">＋スライド</button>
+        </div>
+
+        <div className="vgroup">
           <span className="vtipwrap" data-tip="元に戻す (Ctrl/⌘+Z)">
             <button className="vicon" onClick={onUndo} disabled={!canUndo} aria-label="元に戻す">
               <UndoIcon />
