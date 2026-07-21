@@ -390,6 +390,47 @@
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  /* Sit above the stage so custom tooltips (below the buttons) aren't covered. */
+  position: relative;
+  z-index: 20;
+}
+
+/* Custom tooltip: same look as the native title, but a short 0.5s show delay
+   instead of the browser's ~1.5s. Anchored to the button's left edge. */
+.vtoolbar button[data-tip] {
+  position: relative;
+}
+.vtoolbar button[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  max-width: 260px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #1f2430;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  transition-delay: 0s;
+  z-index: 60;
+}
+.vtoolbar .vgrow button[data-tip]::after {
+  left: auto;
+  right: 0;
+}
+.vtoolbar button[data-tip]:hover::after {
+  opacity: 1;
+  transition-delay: 0.5s;
+}
+.vtoolbar button[data-tip]:disabled::after {
+  display: none;
 }
 
 .vgroup {

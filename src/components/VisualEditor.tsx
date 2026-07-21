@@ -365,26 +365,26 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     <div className="veditor">
       <div className="vtoolbar">
         <div className="vgroup">
-          <button onClick={onUndo} disabled={!canUndo} title="元に戻す (Ctrl/⌘+Z)">
+          <button onClick={onUndo} disabled={!canUndo} data-tip="元に戻す (Ctrl/⌘+Z)" aria-label="元に戻す">
             ↶
           </button>
-          <button onClick={onRedo} disabled={!canRedo} title="やり直す (Ctrl/⌘+Shift+Z)">
+          <button onClick={onRedo} disabled={!canRedo} data-tip="やり直す (Ctrl/⌘+Shift+Z)" aria-label="やり直す">
             ↷
           </button>
         </div>
 
         <div className="vgroup">
-          <button onClick={addBox} title="テキストボックスを追加">＋テキストボックス</button>
+          <button onClick={addBox} data-tip="テキストボックスを追加">＋テキストボックス</button>
         </div>
 
         {selectedEl && (
           <div className="vgroup">
             {selectedBox && (
               <>
-                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} title="文字を小さく（範囲選択中は選択部分のみ）">
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} data-tip="文字を小さく（範囲選択中は選択部分のみ）">
                   A−
                 </button>
-                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} title="文字を大きく（範囲選択中は選択部分のみ）">
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} data-tip="文字を大きく（範囲選択中は選択部分のみ）">
                   A＋
                 </button>
                 {(['left', 'center', 'right'] as const).map((a) => (
@@ -393,7 +393,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                     onMouseDown={(e) => e.preventDefault()}
                     className={`vicon${selectedBox.align === a ? ' active' : ''}`}
                     onClick={() => patchBox(selectedBox.id, { align: a })}
-                    title={ALIGN_LABEL[a]}
+                    data-tip={ALIGN_LABEL[a]}
                     aria-label={ALIGN_LABEL[a]}
                   >
                     <AlignIcon dir={a} />
@@ -403,7 +403,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
             )}
             <button
               onClick={deleteSelected}
-              title={
+              data-tip={
                 selectedBox
                   ? '選択しているテキストボックスを削除（Backspace / Delete でも削除できます）'
                   : '選択している画像を削除（Backspace / Delete でも削除できます）'
@@ -424,7 +424,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                 style={{ background: `#${c}`, borderColor: c === 'FFFFFF' ? '#ccc' : `#${c}` }}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => applyColor(c)}
-                title={`#${c}`}
+                data-tip={`#${c}`}
+                aria-label={`文字色 #${c}`}
               />
             ))}
             <input type="color" onChange={(e) => applyColor(e.target.value.slice(1))} title="カスタム色" />
@@ -432,7 +433,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
         )}
 
         <div className="vgroup vgrow">
-          <button className="vregen" onClick={onRegenerate} title="現在のMarkdownからスライドを作り直す（編集内容は破棄）">
+          <button className="vregen" onClick={onRegenerate} data-tip="現在のMarkdownからスライドを作り直す（編集内容は破棄）">
             Markdownから作り直す
           </button>
         </div>
