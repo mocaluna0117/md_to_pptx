@@ -239,23 +239,83 @@
   color: var(--text);
 }
 
-/* ---- Panes ---- */
-.panes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* ---- Workspace: collapsible Markdown drawer + editing stage ---- */
+.workspace {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
 }
 
-.pane {
+.md-drawer {
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
+  background: var(--panel);
+  transition: width 0.2s ease;
+}
+.md-drawer.open {
+  width: 380px;
+}
+.md-inner {
+  width: 380px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  min-width: 0;
 }
 
-.editor-pane {
+.md-handle {
+  flex: 0 0 auto;
+  width: 24px;
+  border: none;
   border-right: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0;
+}
+.md-handle:hover {
+  color: var(--accent);
+  background: var(--panel);
+}
+.md-handle-text {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+.md-handle-arrow {
+  font-size: 11px;
+}
+
+.md-foot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.stage-area {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stage-loading {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 14px;
 }
 
 .pane-head {
@@ -327,67 +387,14 @@
   tab-size: 2;
 }
 
-.preview-pane {
-  background: var(--panel-2);
-}
-
-.preview-scroll {
-  flex: 1 1 auto;
-  overflow: auto;
-  padding: 20px;
-}
-
-/* Marp slides scale to the pane width while keeping their aspect ratio. */
-.preview .marpit > svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin: 0 auto 18px;
-  border-radius: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  background: #fff;
-}
-
-/* ---- Responsive: stack on narrow screens ---- */
-@media (max-width: 760px) {
-  .panes {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
+/* ---- Responsive: narrower Markdown drawer on small screens ---- */
+@media (max-width: 720px) {
+  .md-drawer.open {
+    width: 78vw;
   }
-  .editor-pane {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+  .md-inner {
+    width: 78vw;
   }
-}
-
-/* ---- View switcher ---- */
-.view {
-  display: inline-flex;
-  margin-left: 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.view button {
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 13px;
-  height: 30px;
-  padding: 0 12px;
-  cursor: pointer;
-}
-
-.view button + button {
-  border-left: 1px solid var(--border);
-}
-
-.view button.active {
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
 }
 
 /* ---- Visual editor ---- */

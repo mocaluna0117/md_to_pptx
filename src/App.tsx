@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { renderPreview } from './lib/marp'
-import { exportPptx } from './lib/exportPptx'
-import { exportPptxNative } from './lib/exportPptxNative'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { exportDeckToPptx } from './lib/exportDeck'
-import { exportMarkdownToPdf, exportDeckToPdf } from './lib/exportPdf'
+import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
 import { deckFromRenderedMarkdown } from './lib/deckFromRender'
 import VisualEditor from './components/VisualEditor'
 import './App.css'
 
-type View = 'markdown' | 'visual'
-type ExportTarget = 'pptx-image' | 'pptx-native' | 'pptx-deck' | 'pdf'
+type ExportTarget = 'pptx' | 'pdf'
 
 const STORAGE_KEY = 'md-to-pptx:v1'
 
@@ -19,6 +15,7 @@ interface Persisted {
   fileName?: string
   deck?: Deck | null
   deckDirty?: boolean
+  mdOpen?: boolean
 }
 
 function loadPersisted(): Persisted {
@@ -46,9 +43,10 @@ Marp で書いた Markdown を
 
 ## 使い方
 
-1. 左のエディタに Markdown を書く
+1. 左の「Markdown」から Markdown を書く / インポート
 2. \`---\` でスライドを区切る
-3. 右上の **PPTX を書き出す** を押す
+3. プレビュー上で直接レイアウトを調整
+4. 右上の **書き出す** から PPTX / PDF
 
 ---
 
@@ -71,10 +69,10 @@ type Status =
 function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
-  const [view, setView] = useState<View>('markdown')
   const [deck, setDeck] = useState<Deck | null>(persisted.deck ?? null)
-  // True when the visual deck has edits not derived from the current Markdown.
+  // True when the deck has edits not derived from the current Markdown.
   const [deckDirty, setDeckDirty] = useState<boolean>(persisted.deckDirty ?? false)
+  const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const exportWrapRef = useRef<HTMLDivElement>(null)
@@ -89,27 +87,26 @@ function App() {
     return () => document.removeEventListener('pointerdown', onDown)
   }, [exportMenuOpen])
 
-  const preview = useMemo(() => renderPreview(markdown), [markdown])
   const exporting = status.kind === 'exporting'
 
-  // Persist Markdown + visual deck so a reload/close doesn't lose work.
+  // Persist Markdown + deck so a reload/close doesn't lose work.
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty, mdOpen }))
       } catch {
         // Deck too big for storage (e.g. embedded images): keep at least the Markdown.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deckDirty }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deckDirty, mdOpen }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, deck, deckDirty])
+  }, [markdown, fileName, deck, deckDirty, mdOpen])
 
-  // ---- Undo / redo history for the visual deck ----
+  // ---- Undo / redo history for the deck ----
   const deckRef = useRef(deck)
   deckRef.current = deck
   const undoRef = useRef<Deck[]>([])
@@ -165,37 +162,36 @@ function App() {
     bumpHistory()
   }, [])
 
-  // The Markdown the current deck was built from (to auto-refresh when it changes).
+  // The Markdown the current deck was built from.
   const deckSourceRef = useRef<string | null>(null)
 
-  async function buildDeck() {
-    const d = await deckFromRenderedMarkdown(markdown)
+  /** Build the deck from Markdown (rendered via Marp) and reset history. */
+  const buildDeck = useCallback(async (src: string) => {
+    const d = await deckFromRenderedMarkdown(src)
     deckRef.current = d
     setDeck(d)
-    deckSourceRef.current = markdown
+    deckSourceRef.current = src
     setDeckDirty(false)
     clearHistory()
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function enterVisual() {
-    // Rebuild from the current Markdown unless there are unsaved visual edits.
-    if (!deck || (markdown !== deckSourceRef.current && !deckDirty)) {
-      await buildDeck()
-    }
-    setView('visual')
-  }
+  // On first load, build a deck from the Markdown if we don't have one yet.
+  const bootedRef = useRef(false)
+  useEffect(() => {
+    if (bootedRef.current) return
+    bootedRef.current = true
+    if (!deckRef.current) void buildDeck(markdown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** Rebuild the deck from the current Markdown, confirming if edits would be lost. */
   async function rebuildFromMarkdown(): Promise<boolean> {
-    if (deck && deckDirty && !window.confirm('現在の Markdown からスライドを作り直します。ビジュアル編集の変更は上書きされます。よろしいですか？')) {
+    if (deckRef.current && deckDirty && !window.confirm('現在の Markdown からスライドを作り直します。編集した内容は上書きされます。よろしいですか？')) {
       return false
     }
-    await buildDeck()
+    await buildDeck(markdown)
     return true
-  }
-
-  async function applyMarkdownToVisual() {
-    if (await rebuildFromMarkdown()) setView('visual')
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -213,7 +209,7 @@ function App() {
   }, [fileName])
 
   async function importMarkdownFile(file: File) {
-    if (deckDirty && !window.confirm('ファイルを読み込むと、現在のビジュアル編集の変更は破棄されます。よろしいですか？')) {
+    if (deckDirty && !window.confirm('ファイルを読み込むと、現在の編集内容は破棄されます。よろしいですか？')) {
       return
     }
     try {
@@ -221,64 +217,42 @@ function App() {
       setMarkdown(text)
       const base = file.name.replace(/\.[^.]+$/, '')
       if (base) setFileName(base)
-      // New content: drop the old deck so entering the visual tab rebuilds fresh.
-      deckRef.current = null
-      setDeck(null)
-      setDeckDirty(false)
-      deckSourceRef.current = null
-      clearHistory()
-      setView('markdown')
+      // Reflect the imported Markdown in the preview immediately.
+      await buildDeck(text)
     } catch {
       setStatus({ kind: 'error', message: 'ファイルの読み込みに失敗しました。' })
     }
   }
 
   /** Reset everything to the default sample (the state before importing a file). */
-  function resetToDefault() {
-    if (!window.confirm('すべて初期状態に戻します。現在の Markdown とビジュアル編集は破棄されます。よろしいですか？')) {
+  async function resetToDefault() {
+    if (!window.confirm('すべて初期状態に戻します。現在の編集内容は破棄されます。よろしいですか？')) {
       return
     }
     setMarkdown(SAMPLE)
     setFileName('slides')
-    deckRef.current = null
-    setDeck(null)
-    setDeckDirty(false)
-    deckSourceRef.current = null
-    clearHistory()
     setStatus({ kind: 'idle' })
-    setView('markdown')
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
       /* ignore */
     }
+    await buildDeck(SAMPLE)
   }
 
   async function runExport(target: ExportTarget) {
     setExportMenuOpen(false)
+    if (!deckRef.current) {
+      setStatus({ kind: 'error', message: 'スライドがありません。' })
+      return
+    }
     setStatus({ kind: 'exporting', done: 0, total: 0 })
     const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
     try {
-      switch (target) {
-        case 'pptx-image':
-          // Rasterize the preview at a higher scale so the slide image stays faithful.
-          await exportPptx(markdown, { fileName, pixelRatio: 3, onProgress })
-          break
-        case 'pptx-native':
-          await exportPptxNative(markdown, { fileName, onProgress })
-          break
-        case 'pptx-deck':
-          if (!deck) throw new Error('スライドがありません。')
-          await exportDeckToPptx(deck, { fileName, onProgress })
-          break
-        case 'pdf':
-          if (view === 'visual') {
-            if (!deck) throw new Error('スライドがありません。')
-            await exportDeckToPdf(deck, { fileName, onProgress })
-          } else {
-            await exportMarkdownToPdf(markdown, { fileName, pixelRatio: 3, onProgress })
-          }
-          break
+      if (target === 'pptx') {
+        await exportDeckToPptx(deckRef.current, { fileName, onProgress })
+      } else {
+        await exportDeckToPdf(deckRef.current, { fileName, onProgress })
       }
       setStatus({ kind: 'idle' })
     } catch (err) {
@@ -293,19 +267,7 @@ function App() {
           <span className="logo" aria-hidden>
             🖥️
           </span>
-          <h1>Marp → PPTX</h1>
-          <div className="view" role="group" aria-label="表示">
-            <button
-              type="button"
-              className={view === 'markdown' ? 'active' : ''}
-              onClick={() => setView('markdown')}
-            >
-              Markdown
-            </button>
-            <button type="button" className={view === 'visual' ? 'active' : ''} onClick={enterVisual}>
-              ビジュアル編集
-            </button>
-          </div>
+          <h1>Markdown → PowerPoint</h1>
         </div>
         <div className="actions">
           <button
@@ -315,15 +277,6 @@ function App() {
           >
             🔄 初期化
           </button>
-          {view === 'markdown' && (
-            <button
-              className="apply"
-              onClick={applyMarkdownToVisual}
-              title="現在の Markdown からビジュアル編集を作成／更新します（ビジュアルの編集がある場合は上書き確認）"
-            >
-              ビジュアルに反映{deckDirty ? ' ●' : ''}
-            </button>
-          )}
           <label className="filename">
             <span className="fn-label">ファイル名</span>
             <input
@@ -355,29 +308,12 @@ function App() {
             </button>
             {exportMenuOpen && !exporting && (
               <div className="export-menu" role="menu">
-                {view === 'visual' ? (
-                  <button role="menuitem" onClick={() => runExport('pptx-deck')}>
-                    <span className="mi-title">PPTX（編集可能）</span>
-                    <span className="mi-desc">
-                      ビジュアル編集の各ボックスを、PowerPoint で編集できるテキストボックスとして書き出します。
-                    </span>
-                  </button>
-                ) : (
-                  <>
-                    <button role="menuitem" onClick={() => runExport('pptx-image')}>
-                      <span className="mi-title">PPTX（見た目そのまま）</span>
-                      <span className="mi-desc">
-                        プレビューの見た目をそのまま再現します（各スライドが画像）。PowerPoint では文字を編集できません。
-                      </span>
-                    </button>
-                    <button role="menuitem" onClick={() => runExport('pptx-native')}>
-                      <span className="mi-title">PPTX（編集可能テキスト）</span>
-                      <span className="mi-desc">
-                        PowerPoint で文字を編集できます。レイアウトは簡易的な再現です。
-                      </span>
-                    </button>
-                  </>
-                )}
+                <button role="menuitem" onClick={() => runExport('pptx')}>
+                  <span className="mi-title">PPTX（編集可能）</span>
+                  <span className="mi-desc">
+                    各テキストボックスを、PowerPoint で編集できる状態のまま書き出します。
+                  </span>
+                </button>
                 <button role="menuitem" onClick={() => runExport('pdf')}>
                   <span className="mi-title">PDF</span>
                   <span className="mi-desc">
@@ -391,16 +327,8 @@ function App() {
       </header>
 
       <div className="banner info">
-        {view === 'visual'
-          ? 'ビジュアル編集：PowerPoint のように直接レイアウトを調整できます。テキストボックスはドラッグで移動、角でサイズ変更、ダブルクリックで文字を編集。書き出すと、そのまま PowerPoint で編集できる PPTX になります。'
-          : '左に Markdown を書くと、右にスライドのプレビューが表示されます。「書き出す ▾」から、スライドをダウンロードすることができます。'}
+        スライドを PowerPoint のように直接編集できます（ドラッグで移動・角でサイズ変更・ダブルクリックで文字編集）。左の「Markdown」タブで元の Markdown を編集・インポート。書き出しは編集可能な PPTX と PDF。
       </div>
-
-      {view === 'markdown' && deckDirty && (
-        <div className="banner warn">
-          ● ビジュアル編集に変更があります。「ビジュアルに反映」を押すと Markdown の内容で上書きされます（変更は自動保存され、リロードしても保持されます）。
-        </div>
-      )}
 
       {status.kind === 'error' && (
         <div className="banner error" role="alert">
@@ -408,20 +336,10 @@ function App() {
         </div>
       )}
 
-      {view === 'visual' && deck ? (
-        <VisualEditor
-          deck={deck}
-          onChange={handleDeckChange}
-          onRegenerate={rebuildFromMarkdown}
-          onUndo={undo}
-          onRedo={redo}
-          canUndo={undoRef.current.length > 0}
-          canRedo={redoRef.current.length > 0}
-        />
-      ) : (
-        <main className="panes">
-          <section
-            className="pane editor-pane"
+      <div className="workspace">
+        <aside className={`md-drawer${mdOpen ? ' open' : ''}`}>
+          <div
+            className="md-inner"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault()
@@ -459,17 +377,46 @@ function App() {
               onChange={(e) => setMarkdown(e.target.value)}
               spellCheck={false}
             />
-          </section>
-
-        <section className="pane preview-pane">
-          <div className="pane-head">プレビュー</div>
-          <div className="preview-scroll">
-            <style>{preview.css}</style>
-            <div className="preview" dangerouslySetInnerHTML={{ __html: preview.html }} />
+            <div className="md-foot">
+              <button
+                className="apply"
+                onClick={() => void rebuildFromMarkdown()}
+                title="現在の Markdown からスライドを作り直します（編集した内容がある場合は上書き確認）"
+              >
+                プレビューに反映{deckDirty ? ' ●' : ''}
+              </button>
+            </div>
           </div>
-        </section>
+        </aside>
+
+        <button
+          className="md-handle"
+          onClick={() => setMdOpen((o) => !o)}
+          aria-expanded={mdOpen}
+          title={mdOpen ? 'Markdown エディタを閉じる' : 'Markdown エディタを開く'}
+        >
+          <span className="md-handle-text">Markdown</span>
+          <span className="md-handle-arrow" aria-hidden>
+            {mdOpen ? '◀' : '▶'}
+          </span>
+        </button>
+
+        <main className="stage-area">
+          {deck ? (
+            <VisualEditor
+              deck={deck}
+              onChange={handleDeckChange}
+              onRegenerate={rebuildFromMarkdown}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={undoRef.current.length > 0}
+              canRedo={redoRef.current.length > 0}
+            />
+          ) : (
+            <div className="stage-loading">スライドを生成中…</div>
+          )}
         </main>
-      )}
+      </div>
     </div>
   )
 }
