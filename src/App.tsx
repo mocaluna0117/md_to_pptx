@@ -381,7 +381,7 @@ function App() {
       <div className="banner info">
         {view === 'visual'
           ? 'ビジュアル編集：PowerPoint のように直接レイアウトを調整できます。テキストボックスはドラッグで移動、角でサイズ変更、ダブルクリックで文字を編集。書き出すと、そのまま PowerPoint で編集できる PPTX になります。'
-          : 'Markdown を編集するとプレビューに反映されます。「書き出す ▾」から、見た目そのまま（画像）／編集可能テキストの PPTX、または PDF を選べます。'}
+          : '左に Markdown を書くと、右にスライドのプレビューが表示されます。「書き出す ▾」から、見た目そのままの画像 PPTX／PowerPoint で文字を編集できる PPTX／PDF を選んでダウンロードできます。'}
       </div>
 
       {view === 'markdown' && deckDirty && (
