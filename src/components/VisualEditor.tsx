@@ -381,12 +381,16 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     <div className="veditor">
       <div className="vtoolbar">
         <div className="vgroup">
-          <button className="vicon" onClick={onUndo} disabled={!canUndo} data-tip="元に戻す (Ctrl/⌘+Z)" aria-label="元に戻す">
-            <UndoIcon />
-          </button>
-          <button className="vicon" onClick={onRedo} disabled={!canRedo} data-tip="やり直す (Ctrl/⌘+Shift+Z)" aria-label="やり直す">
-            <RedoIcon />
-          </button>
+          <span className="vtipwrap" data-tip="元に戻す (Ctrl/⌘+Z)">
+            <button className="vicon" onClick={onUndo} disabled={!canUndo} aria-label="元に戻す">
+              <UndoIcon />
+            </button>
+          </span>
+          <span className="vtipwrap" data-tip="やり直す (Ctrl/⌘+Shift+Z)">
+            <button className="vicon" onClick={onRedo} disabled={!canRedo} aria-label="やり直す">
+              <RedoIcon />
+            </button>
+          </span>
         </div>
 
         <div className="vgroup">
