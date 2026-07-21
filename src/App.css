@@ -760,6 +760,8 @@
   cursor: move;
   box-sizing: border-box;
   border: 1px solid transparent;
+  /* Don't let a column-resize drag start selecting cell text. */
+  user-select: none;
 }
 .vtable:hover {
   border-color: rgba(91, 140, 255, 0.5);
@@ -793,6 +795,7 @@
   outline-offset: -2px;
   cursor: text;
   background: #fff;
+  user-select: text;
 }
 
 /* Drag strip on an internal column boundary (shown when the table is selected). */
@@ -800,10 +803,11 @@
   position: absolute;
   top: 0;
   height: 100%;
-  width: 9px;
+  width: 13px;
   transform: translateX(-50%);
   cursor: col-resize;
-  z-index: 3;
+  z-index: 4;
+  touch-action: none;
 }
 .vcolresize::after {
   content: '';
@@ -813,10 +817,12 @@
   height: 100%;
   width: 2px;
   transform: translateX(-50%);
-  background: transparent;
+  /* Always visible while the table is selected, so the grab target is obvious. */
+  background: rgba(91, 140, 255, 0.6);
 }
 .vcolresize:hover::after {
   background: var(--accent);
+  width: 3px;
 }
 
 /* ---- Tables (thumbnail) ---- */
