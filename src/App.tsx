@@ -318,7 +318,7 @@ function App() {
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
-              size={Math.min(Math.max(fileName.length + 2, 12), 40)}
+              size={Math.min(Math.max(fileName.length + 1, 8), 40)}
               spellCheck={false}
               aria-label="ファイル名"
             />
