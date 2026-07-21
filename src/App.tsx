@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { renderPreview } from './lib/marp'
 import { exportPptx } from './lib/exportPptx'
 import { exportPptxNative } from './lib/exportPptxNative'
@@ -200,6 +200,18 @@ function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Size the filename input to the actual rendered text width (measured via a
+  // hidden mirror), so the box hugs short names instead of over-reserving space.
+  const fnInputRef = useRef<HTMLInputElement>(null)
+  const fnSizerRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const input = fnInputRef.current
+    const sizer = fnSizerRef.current
+    if (!input || !sizer) return
+    const textW = sizer.getBoundingClientRect().width
+    input.style.width = `${Math.min(textW + 6, 320)}px` // +6px caret room, 320px cap
+  }, [fileName])
+
   async function importMarkdownFile(file: File) {
     if (deckDirty && !window.confirm('ファイルを読み込むと、現在のビジュアル編集の変更は破棄されます。よろしいですか？')) {
       return
@@ -315,13 +327,16 @@ function App() {
           <label className="filename">
             <span className="fn-label">ファイル名</span>
             <input
+              ref={fnInputRef}
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
-              size={Math.min(Math.max(fileName.length + 1, 8), 40)}
               spellCheck={false}
               aria-label="ファイル名"
             />
+            <span ref={fnSizerRef} className="fn-sizer" aria-hidden>
+              {fileName || ' '}
+            </span>
           </label>
           <div className="export-wrap" ref={exportWrapRef}>
             <button

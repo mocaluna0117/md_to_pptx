@@ -86,7 +86,8 @@
   border-radius: 8px;
   padding: 0 10px;
   height: 34px;
-  min-width: 0;
+  /* Just enough for the ファイル名 caption; the input grows the box past this. */
+  min-width: 74px;
 }
 
 /* "ファイル名" caption sitting on the top border (outlined-field notch). */
@@ -109,11 +110,20 @@
   outline: none;
   color: var(--text);
   font: inherit;
-  /* Width follows the `size` attribute (grows with the name); the char count is
-     capped in App.tsx, and this is a hard upper bound. */
-  width: auto;
+  /* Width is set in JS from the measured text width (see useLayoutEffect). */
+  width: 48px;
   min-width: 0;
-  max-width: 42ch;
+  box-sizing: content-box;
+}
+
+/* Off-screen mirror of the input text, used only to measure its width. */
+.fn-sizer {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  white-space: pre;
+  font: inherit;
 }
 
 .filename .ext {
