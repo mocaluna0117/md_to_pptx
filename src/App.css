@@ -339,7 +339,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   padding: 6px 14px;
   min-height: 34px;
   font-size: 12px;
@@ -350,6 +351,12 @@
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+}
+
+.loadmd-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .loadmd {

@@ -70,6 +70,19 @@ type Status =
   | { kind: 'exporting'; done: number; total: number }
   | { kind: 'error'; message: string }
 
+/** Remove a leading YAML front-matter block (--- … ---) from Markdown, if present. */
+function stripFrontmatter(md: string): string {
+  return md.replace(/^﻿?---[^\n]*\n[\s\S]*?\n---[^\n]*\n?/, '')
+}
+
+/** Merge an imported Markdown into the current one as extra slides (own front-matter dropped). */
+function mergeMarkdown(base: string, add: string): string {
+  if (!base.trim()) return add
+  const body = stripFrontmatter(add).trim()
+  if (!body) return base
+  return `${base.trimEnd()}\n\n---\n\n${body}\n`
+}
+
 function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
@@ -240,6 +253,8 @@ function App() {
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Whether the next file pick replaces the Markdown or is merged into it.
+  const importModeRef = useRef<'replace' | 'append'>('replace')
 
   // Size the filename input to the actual rendered text width (measured via a
   // hidden mirror), so the box hugs short names instead of over-reserving space.
@@ -253,17 +268,26 @@ function App() {
     input.style.width = `${Math.min(textW + 6, 320)}px` // +6px caret room, 320px cap
   }, [fileName])
 
-  async function importMarkdownFile(file: File) {
-    if (deckDirty && !window.confirm('ファイルを読み込むと、現在の編集内容は破棄されます。よろしいですか？')) {
+  async function importMarkdownFile(file: File, mode: 'replace' | 'append' = 'replace') {
+    const confirmMsg =
+      mode === 'append'
+        ? '読み込んだ Markdown を現在の内容に結合します。ビジュアル編集の変更は破棄され、作り直されます。よろしいですか？'
+        : 'ファイルを読み込むと、現在の編集内容は破棄されます。よろしいですか？'
+    if (deckDirty && !window.confirm(confirmMsg)) {
       return
     }
     try {
       const text = await file.text()
-      setMarkdown(text)
-      const base = file.name.replace(/\.[^.]+$/, '')
-      if (base) setFileName(base)
-      // Reflect the imported Markdown in the preview immediately.
-      await buildDeck(text)
+      if (mode === 'append') {
+        const merged = mergeMarkdown(markdown, text)
+        setMarkdown(merged)
+        await buildDeck(merged)
+      } else {
+        setMarkdown(text)
+        const base = file.name.replace(/\.[^.]+$/, '')
+        if (base) setFileName(base)
+        await buildDeck(text)
+      }
     } catch {
       setStatus({ kind: 'error', message: 'ファイルの読み込みに失敗しました。' })
     }
@@ -396,14 +420,30 @@ function App() {
           >
             <div className="pane-head">
               <span>Markdown</span>
-              <button
-                className="loadmd"
-                onClick={() => fileInputRef.current?.click()}
-                data-tip="対応: .md / .markdown / .txt"
-                aria-label="Markdown ファイルをインポート（対応: .md / .markdown / .txt）"
-              >
-                📂 ファイルをインポート
-              </button>
+              <span className="loadmd-group">
+                <button
+                  className="loadmd"
+                  onClick={() => {
+                    importModeRef.current = 'replace'
+                    fileInputRef.current?.click()
+                  }}
+                  data-tip="Markdown を読み込み（現在の内容を置き換え・対応: .md / .markdown / .txt）"
+                  aria-label="Markdown ファイルをインポート（現在の内容を置き換え）"
+                >
+                  📂 インポート
+                </button>
+                <button
+                  className="loadmd"
+                  onClick={() => {
+                    importModeRef.current = 'append'
+                    fileInputRef.current?.click()
+                  }}
+                  data-tip="別の Markdown を現在の内容に結合して読み込み"
+                  aria-label="別の Markdown を現在の内容に結合して読み込み"
+                >
+                  ＋ 結合
+                </button>
+              </span>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -411,7 +451,7 @@ function App() {
                 hidden
                 onChange={(e) => {
                   const f = e.target.files?.[0]
-                  if (f) importMarkdownFile(f)
+                  if (f) importMarkdownFile(f, importModeRef.current)
                   e.target.value = ''
                 }}
               />
