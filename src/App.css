@@ -5,6 +5,118 @@
   min-height: 0;
 }
 
+/* ---- "使い方" help ---- */
+.help-btn {
+  grid-column: 1;
+  justify-self: start;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.help-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+}
+.help-modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.help-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+.help-close {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.help-close:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.help-body {
+  padding: 16px 18px 20px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.help-lead {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+}
+.help-body section {
+  margin-bottom: 14px;
+}
+.help-body h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.help-body ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.help-body li {
+  margin: 3px 0;
+}
+.help-body code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: var(--panel-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.help-note {
+  margin: 6px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
 /* ---- Toolbar ---- */
 .toolbar {
   display: grid;

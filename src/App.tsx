@@ -96,8 +96,19 @@ function App() {
   const [resizing, setResizing] = useState(false)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const exportWrapRef = useRef<HTMLDivElement>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
+
+  // Close the "使い方" dialog on Escape.
+  useEffect(() => {
+    if (!helpOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHelpOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [helpOpen])
 
   // Close the export menu when clicking outside it.
   useEffect(() => {
@@ -332,6 +343,9 @@ function App() {
   return (
     <div className="app">
       <header className="toolbar">
+        <button className="help-btn" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
+          ？ 使い方
+        </button>
         <div className="brand">
           <h1>Deckdown</h1>
           <span className="tagline">Markdown → PowerPoint</span>
@@ -503,6 +517,69 @@ function App() {
           )}
         </main>
       </div>
+
+      {helpOpen && (
+        <div className="help-overlay" onClick={() => setHelpOpen(false)}>
+          <div
+            className="help-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="使い方"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="help-head">
+              <h2>使い方</h2>
+              <button className="help-close" onClick={() => setHelpOpen(false)} aria-label="閉じる">
+                ×
+              </button>
+            </div>
+            <div className="help-body">
+              <p className="help-lead">
+                Markdown を貼り付けて、PowerPoint のように直接編集し、編集できる PPTX / PDF に書き出せます。
+              </p>
+
+              <section>
+                <h3>1. Markdown を用意する</h3>
+                <ul>
+                  <li>左端の縦タブ <b>「Markdown」</b> をクリックで開閉、境界を<b>ドラッグで幅調整</b>。</li>
+                  <li><b>「📂 インポート」</b>で <code>.md</code> / <code>.markdown</code> / <code>.txt</code> を読み込み（ドラッグ＆ドロップも可）。</li>
+                  <li><b>「＋ 結合」</b>で 2 つめ以降の Markdown を現在の内容に連結。</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>2. スライドに反映する</h3>
+                <ul>
+                  <li>ドロワー下の <b>「プレビューに反映」</b>で、Markdown から中央のスライドを作成／作り直し。</li>
+                  <li>見出しや <code>---</code>、箇条書き・表・コードブロックがそのままスライドになります。</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>3. スライドを直接編集する</h3>
+                <ul>
+                  <li><b>テキストボックス</b>：ドラッグで移動／角でリサイズ／<b>ダブルクリックで文字編集</b>／文字を選択して色・サイズ変更。</li>
+                  <li><b>表</b>：セルを<b>ダブルクリックで編集</b>、<b>列・行の境界をドラッグ</b>で幅・高さを調整。</li>
+                  <li>ツールバーの <b>＋テキストボックス / ＋表 / ＋スライド</b> で追加。</li>
+                  <li><b>↑↓←→</b> でスライド切替、<b>Backspace / Delete</b> で選択中の要素を削除、<b>Ctrl/⌘+Z</b> で元に戻す。</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>4. 書き出す</h3>
+                <ul>
+                  <li>右上の <b>「書き出す ▾」</b> から <b>PPTX（編集可能）</b> か <b>PDF</b> を選んでダウンロード。</li>
+                  <li>ファイル名は右上の「ファイル名」欄で変更できます。</li>
+                </ul>
+              </section>
+
+              <p className="help-note">
+                編集内容は自動保存され、リロードしても続きから再開できます。最初の状態に戻すには <b>「🔄 初期化」</b>。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
