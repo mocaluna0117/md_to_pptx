@@ -398,16 +398,13 @@ function App() {
           >
             <div className="pane-head">
               <span>Markdown</span>
-              <span className="loadmd-group">
-                <span className="ext-hint">対応: .md / .markdown / .txt</span>
-                <button
-                  className="loadmd"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Markdown ファイルをインポート（.md / .markdown / .mdown / .txt）"
-                >
-                  📂 ファイルをインポート
-                </button>
-              </span>
+              <button
+                className="loadmd"
+                onClick={() => fileInputRef.current?.click()}
+                title="Markdown ファイルをインポート（対応: .md / .markdown / .txt）"
+              >
+                📂 ファイルをインポート
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
