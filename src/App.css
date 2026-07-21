@@ -116,6 +116,11 @@
   box-sizing: content-box;
 }
 
+.filename input::placeholder {
+  color: var(--text-dim);
+  opacity: 1;
+}
+
 /* Off-screen mirror of the input text, used only to measure its width. */
 .fn-sizer {
   position: absolute;

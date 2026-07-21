@@ -331,11 +331,12 @@ function App() {
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
+              placeholder="slides"
               spellCheck={false}
               aria-label="ファイル名"
             />
             <span ref={fnSizerRef} className="fn-sizer" aria-hidden>
-              {fileName || ' '}
+              {fileName || 'slides'}
             </span>
           </label>
           <div className="export-wrap" ref={exportWrapRef}>
