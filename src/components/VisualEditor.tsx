@@ -401,8 +401,15 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                 ))}
               </>
             )}
-            <button onClick={deleteSelected} title={selectedBox ? 'テキストボックスを削除' : '画像を削除'}>
-              🗑 {selectedBox ? 'テキストボックスを削除' : '画像を削除'}
+            <button
+              onClick={deleteSelected}
+              title={
+                selectedBox
+                  ? '選択しているテキストボックスを削除（Backspace / Delete でも削除できます）'
+                  : '選択している画像を削除（Backspace / Delete でも削除できます）'
+              }
+            >
+              🗑 {selectedBox ? '選択しているテキストボックスを削除' : '選択している画像を削除'}
             </button>
           </div>
         )}
