@@ -253,11 +253,15 @@
   background: var(--panel);
   transition: width 0.2s ease;
 }
-.md-drawer.open {
-  width: 380px;
+/* While dragging the handle, follow the pointer immediately (no easing). */
+.workspace.resizing .md-drawer {
+  transition: none;
+}
+.workspace.resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 .md-inner {
-  width: 380px;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -271,7 +275,8 @@
   border-right: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text-dim);
-  cursor: pointer;
+  cursor: col-resize;
+  touch-action: none;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -385,16 +390,6 @@
   color: var(--text);
   font: 14px/1.6 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   tab-size: 2;
-}
-
-/* ---- Responsive: narrower Markdown drawer on small screens ---- */
-@media (max-width: 720px) {
-  .md-drawer.open {
-    width: 78vw;
-  }
-  .md-inner {
-    width: 78vw;
-  }
 }
 
 /* ---- Visual editor ---- */

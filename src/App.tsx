@@ -16,7 +16,11 @@ interface Persisted {
   deck?: Deck | null
   deckDirty?: boolean
   mdOpen?: boolean
+  drawerWidth?: number
 }
+
+const MIN_DRAWER = 240
+const MAX_DRAWER = 760
 
 function loadPersisted(): Persisted {
   try {
@@ -73,9 +77,14 @@ function App() {
   // True when the deck has edits not derived from the current Markdown.
   const [deckDirty, setDeckDirty] = useState<boolean>(persisted.deckDirty ?? false)
   const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
+  const [drawerWidth, setDrawerWidth] = useState<number>(
+    Math.min(MAX_DRAWER, Math.max(MIN_DRAWER, persisted.drawerWidth ?? 380)),
+  )
+  const [resizing, setResizing] = useState(false)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const exportWrapRef = useRef<HTMLDivElement>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
 
   // Close the export menu when clicking outside it.
   useEffect(() => {
@@ -93,18 +102,54 @@ function App() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty, mdOpen }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty, mdOpen, drawerWidth }))
       } catch {
         // Deck too big for storage (e.g. embedded images): keep at least the Markdown.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deckDirty, mdOpen }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deckDirty, mdOpen, drawerWidth }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, deck, deckDirty, mdOpen])
+  }, [markdown, fileName, deck, deckDirty, mdOpen, drawerWidth])
+
+  /** Drag the Markdown drawer's edge to resize; releasing without a drag toggles it. */
+  function onHandlePointerDown(e: React.PointerEvent) {
+    if (e.button !== 0) return
+    const ws = workspaceRef.current
+    if (!ws) return
+    const startX = e.clientX
+    const wsLeft = ws.getBoundingClientRect().left
+    let moved = false
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) > 4) {
+        moved = true
+        setResizing(true)
+        setMdOpen(true)
+      }
+      if (moved) {
+        setDrawerWidth(Math.max(MIN_DRAWER, Math.min(MAX_DRAWER, ev.clientX - wsLeft)))
+      }
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      // A drag resized the drawer; a press without movement is a toggle.
+      if (moved) setResizing(false)
+      else setMdOpen((o) => !o)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function onHandleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setMdOpen((o) => !o)
+    }
+  }
 
   // ---- Undo / redo history for the deck ----
   const deckRef = useRef(deck)
@@ -336,10 +381,14 @@ function App() {
         </div>
       )}
 
-      <div className="workspace">
-        <aside className={`md-drawer${mdOpen ? ' open' : ''}`}>
+      <div className={`workspace${resizing ? ' resizing' : ''}`} ref={workspaceRef}>
+        <aside
+          className={`md-drawer${mdOpen ? ' open' : ''}`}
+          style={{ width: mdOpen ? drawerWidth : 0 }}
+        >
           <div
             className="md-inner"
+            style={{ width: drawerWidth }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault()
@@ -391,9 +440,10 @@ function App() {
 
         <button
           className="md-handle"
-          onClick={() => setMdOpen((o) => !o)}
+          onPointerDown={onHandlePointerDown}
+          onKeyDown={onHandleKeyDown}
           aria-expanded={mdOpen}
-          title={mdOpen ? 'Markdown エディタを閉じる' : 'Markdown エディタを開く'}
+          title={mdOpen ? 'ドラッグで幅を調整 / クリックで閉じる' : 'クリックで開く（ドラッグで幅調整）'}
         >
           <span className="md-handle-text">Markdown</span>
           <span className="md-handle-arrow" aria-hidden>
