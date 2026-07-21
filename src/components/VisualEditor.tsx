@@ -678,7 +678,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
             return (
               <div
                 key={box.id}
-                className={`vbox${selectedId === box.id ? ' selected' : ''}`}
+                className={`vbox${selectedId === box.id ? ' selected' : ''}${box.pre ? ' pre' : ''}`}
                 style={style}
                 onPointerDown={(e) => startDrag(box, 'move', e)}
                 onDoubleClick={(e) => {
@@ -740,7 +740,7 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
         {slide.boxes.map((box) => (
           <div
             key={box.id}
-            className="vthumb-box"
+            className={`vthumb-box${box.pre ? ' pre' : ''}`}
             style={{
               left: box.x * ppi,
               top: box.y * ppi,
@@ -834,7 +834,7 @@ function EditableBox({ box, style, ppi, editRef, onSync, onCommit }: EditableBox
   return (
     <div
       ref={ref}
-      className="vbox editing"
+      className={`vbox editing${box.pre ? ' pre' : ''}`}
       style={style}
       contentEditable
       suppressContentEditableWarning

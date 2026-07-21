@@ -27,6 +27,8 @@ export interface Box {
   align: 'left' | 'center' | 'right'
   /** Base text color (bare hex); individual runs may override it. */
   color?: string
+  /** Preformatted (code block): preserve whitespace, monospace, no wrapping. */
+  pre?: boolean
   runs: TextRun[]
 }
 

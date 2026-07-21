@@ -174,6 +174,29 @@ function boxFromBlock(el: HTMLElement, secRect: DOMRect): Box | null {
   const rect = el.getBoundingClientRect()
   if (rect.width < 1 || rect.height < 1) return null
 
+  const pos = {
+    x: round(pxToIn(rect.left - secRect.left)),
+    y: round(pxToIn(rect.top - secRect.top)),
+    w: round(pxToIn(rect.width)),
+    h: round(pxToIn(rect.height)),
+  }
+
+  // Code block: keep whitespace/newlines verbatim, monospace, no wrapping.
+  if (el.tagName === 'PRE') {
+    const raw = (el.textContent ?? '').replace(/\n+$/, '')
+    if (!raw.trim()) return null
+    const pcs = getComputedStyle(el)
+    return {
+      id: genId(),
+      ...pos,
+      fontSize: round(pxToPt(parseFloat(pcs.fontSize) || 20)),
+      align: 'left',
+      color: toHex(pcs.color) ?? '111111',
+      pre: true,
+      runs: [{ text: raw, code: true }],
+    }
+  }
+
   const cs = getComputedStyle(el)
   const base = { color: toHex(cs.color) ?? '000000', size: round(pxToPt(parseFloat(cs.fontSize) || 24)) }
   const runs = extractRuns(el, base)
@@ -182,10 +205,7 @@ function boxFromBlock(el: HTMLElement, secRect: DOMRect): Box | null {
   const align = cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left'
   return {
     id: genId(),
-    x: round(pxToIn(rect.left - secRect.left)),
-    y: round(pxToIn(rect.top - secRect.top)),
-    w: round(pxToIn(rect.width)),
-    h: round(pxToIn(rect.height)),
+    ...pos,
     fontSize: base.size,
     align,
     color: base.color,

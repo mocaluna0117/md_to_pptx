@@ -600,6 +600,17 @@
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 
+/* Code-block boxes: preserve whitespace, don't wrap (keeps ASCII art aligned). */
+.vbox.pre {
+  white-space: pre;
+  line-height: 1.25;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.vthumb-box.pre {
+  white-space: pre;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
 .vresize {
   position: absolute;
   width: 14px;
