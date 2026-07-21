@@ -357,20 +357,32 @@ function App() {
               <div className="export-menu" role="menu">
                 {view === 'visual' ? (
                   <button role="menuitem" onClick={() => runExport('pptx-deck')}>
-                    PPTX（編集可能）で書き出す
+                    <span className="mi-title">PPTX（編集可能）</span>
+                    <span className="mi-desc">
+                      ビジュアル編集の各ボックスを、PowerPoint で編集できるテキストボックスとして書き出します。
+                    </span>
                   </button>
                 ) : (
                   <>
                     <button role="menuitem" onClick={() => runExport('pptx-image')}>
-                      PPTX（見た目そのまま）で書き出す
+                      <span className="mi-title">PPTX（見た目そのまま）</span>
+                      <span className="mi-desc">
+                        プレビューの見た目をそのまま再現します（各スライドが画像）。PowerPoint では文字を編集できません。
+                      </span>
                     </button>
                     <button role="menuitem" onClick={() => runExport('pptx-native')}>
-                      PPTX（編集可能テキスト）で書き出す
+                      <span className="mi-title">PPTX（編集可能テキスト）</span>
+                      <span className="mi-desc">
+                        PowerPoint で文字を編集できます。レイアウトは簡易的な再現です。
+                      </span>
                     </button>
                   </>
                 )}
                 <button role="menuitem" onClick={() => runExport('pdf')}>
-                  PDF で書き出す
+                  <span className="mi-title">PDF</span>
+                  <span className="mi-desc">
+                    各スライドを画像にして、1 ページずつ収めた PDF を書き出します。
+                  </span>
                 </button>
               </div>
             )}
@@ -381,7 +393,7 @@ function App() {
       <div className="banner info">
         {view === 'visual'
           ? 'ビジュアル編集：PowerPoint のように直接レイアウトを調整できます。テキストボックスはドラッグで移動、角でサイズ変更、ダブルクリックで文字を編集。書き出すと、そのまま PowerPoint で編集できる PPTX になります。'
-          : '左に Markdown を書くと、右にスライドのプレビューが表示されます。「書き出す ▾」から次の3つを選べます。「PPTX（見た目そのまま）」＝プレビューと同じ見た目の画像、「PPTX（編集可能テキスト）」＝PowerPoint で文字を直せる、「PDF」。'}
+          : '左に Markdown を書くと、右にスライドのプレビューが表示されます。「書き出す ▾」から、スライドをダウンロードすることができます。'}
       </div>
 
       {view === 'markdown' && deckDirty && (

@@ -49,7 +49,8 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
-  min-width: 180px;
+  min-width: 300px;
+  max-width: 360px;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -61,20 +62,37 @@
 }
 
 .export-menu button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   text-align: left;
   border: none;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 14px;
   padding: 9px 12px;
   border-radius: 7px;
   cursor: pointer;
 }
 
+.export-menu .mi-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.export-menu .mi-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .export-menu button:hover {
   background: var(--accent);
   color: #fff;
+}
+
+.export-menu button:hover .mi-desc {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .filename {
