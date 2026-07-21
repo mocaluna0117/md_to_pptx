@@ -430,6 +430,14 @@
   border-color: var(--accent);
 }
 
+/* Icon-only buttons (e.g. text alignment) center their glyph. */
+.vtoolbar button.vicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .vcount {
   font-size: 13px;
   color: var(--text-dim);

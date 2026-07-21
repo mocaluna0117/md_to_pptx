@@ -32,6 +32,25 @@ interface Props {
 
 const SWATCHES = ['000000', 'E03131', '1971C2', '2F9E44', 'F08C00', '7048E8', '868E96', 'FFFFFF']
 
+// Word/PowerPoint-style alignment glyphs: stacked bars flushed to the edge.
+type Align = 'left' | 'center' | 'right'
+const ALIGN_BARS: Record<Align, [number, number][]> = {
+  left: [[1, 14], [1, 8], [1, 14], [1, 8]],
+  center: [[1, 14], [4, 8], [1, 14], [4, 8]],
+  right: [[1, 14], [7, 8], [1, 14], [7, 8]],
+}
+const ALIGN_LABEL: Record<Align, string> = { left: '左揃え', center: '中央揃え', right: '右揃え' }
+
+function AlignIcon({ dir }: { dir: Align }) {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden focusable="false">
+      {ALIGN_BARS[dir].map(([x, w], i) => (
+        <rect key={i} x={x} y={2.5 + i * 3.7} width={w} height="1.6" rx="0.8" />
+      ))}
+    </svg>
+  )
+}
+
 export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onRedo, canUndo, canRedo }: Props) {
   const [si, setSi] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -355,7 +374,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
         </div>
 
         <div className="vgroup">
-          <button onClick={addBox} title="テキストボックスを追加">＋ボックス</button>
+          <button onClick={addBox} title="テキストボックスを追加">＋テキストボックス</button>
         </div>
 
         {selectedEl && (
@@ -372,17 +391,18 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                   <button
                     key={a}
                     onMouseDown={(e) => e.preventDefault()}
-                    className={selectedBox.align === a ? 'active' : ''}
+                    className={`vicon${selectedBox.align === a ? ' active' : ''}`}
                     onClick={() => patchBox(selectedBox.id, { align: a })}
-                    title={`揃え: ${a}`}
+                    title={ALIGN_LABEL[a]}
+                    aria-label={ALIGN_LABEL[a]}
                   >
-                    {a === 'left' ? '⤙' : a === 'center' ? '≡' : '⤚'}
+                    <AlignIcon dir={a} />
                   </button>
                 ))}
               </>
             )}
-            <button onClick={deleteSelected} title={selectedBox ? 'ボックスを削除' : '画像を削除'}>
-              🗑{selectedBox ? 'ボックス' : '画像'}
+            <button onClick={deleteSelected} title={selectedBox ? 'テキストボックスを削除' : '画像を削除'}>
+              🗑 {selectedBox ? 'テキストボックスを削除' : '画像を削除'}
             </button>
           </div>
         )}
