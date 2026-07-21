@@ -40,12 +40,27 @@ export interface ImageEl {
   src: string
 }
 
+/** A table placed on a slide. `rows[r][c]` is plain cell text. */
+export interface TableEl {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  rows: string[][]
+  /** First row is a header row (rendered bold / shaded). */
+  header: boolean
+  /** Font size in points. */
+  fontSize: number
+}
+
 export interface Slide {
   id: string
   /** Bare hex background, e.g. "FFFFFF". */
   background: string
   boxes: Box[]
   images?: ImageEl[]
+  tables?: TableEl[]
 }
 
 export interface Deck {
@@ -73,7 +88,25 @@ export function newBox(partial: Partial<Box> = {}): Box {
 }
 
 export function newSlide(background = 'FFFFFF'): Slide {
-  return { id: genId(), background, boxes: [], images: [] }
+  return { id: genId(), background, boxes: [], images: [], tables: [] }
+}
+
+export function newTable(partial: Partial<TableEl> = {}): TableEl {
+  return {
+    id: genId(),
+    x: 1,
+    y: 1.5,
+    w: 6,
+    h: 1.8,
+    header: true,
+    fontSize: 14,
+    rows: [
+      ['列 1', '列 2', '列 3'],
+      ['', '', ''],
+      ['', '', ''],
+    ],
+    ...partial,
+  }
 }
 
 /** Convert "#RRGGBB" | "RRGGBB" | "rgb(r, g, b)" to bare uppercase hex, or null. */

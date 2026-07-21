@@ -8,6 +8,7 @@ import {
   type Deck,
   type ImageEl,
   type Slide,
+  type TableEl,
   type TextRun,
 } from './deck'
 
@@ -68,7 +69,46 @@ function slideFromSection(section: HTMLElement): Slide {
     const box = boxFromBlock(child as HTMLElement, secRect)
     if (box) boxes.push(box)
   }
-  return { id: genId(), background, boxes, images: imagesFromSection(section, secRect) }
+  return {
+    id: genId(),
+    background,
+    boxes,
+    images: imagesFromSection(section, secRect),
+    tables: tablesFromSection(section, secRect),
+  }
+}
+
+/** Extract each rendered <table> as an editable TableEl (rows of plain text). */
+function tablesFromSection(section: HTMLElement, secRect: DOMRect): TableEl[] {
+  const out: TableEl[] = []
+  for (const table of Array.from(section.querySelectorAll('table'))) {
+    const rect = table.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) continue
+
+    const cellText = (c: Element) => (c.textContent ?? '').replace(/\s+/g, ' ').trim()
+    const rows: string[][] = []
+    const headCells = Array.from(table.querySelectorAll(':scope > thead th, :scope > thead td'))
+    const header = headCells.length > 0
+    if (header) rows.push(headCells.map(cellText))
+    for (const tr of Array.from(table.querySelectorAll(':scope > tbody > tr, :scope > tr'))) {
+      const cells = Array.from(tr.children).map(cellText)
+      if (cells.length) rows.push(cells)
+    }
+    if (rows.length === 0) continue
+
+    const fontSize = round(pxToPt(parseFloat(getComputedStyle(table).fontSize) || 18))
+    out.push({
+      id: genId(),
+      x: round(pxToIn(rect.left - secRect.left)),
+      y: round(pxToIn(rect.top - secRect.top)),
+      w: round(pxToIn(rect.width)),
+      h: round(pxToIn(rect.height)),
+      rows,
+      header,
+      fontSize,
+    })
+  }
+  return out
 }
 
 function imagesFromSection(section: HTMLElement, secRect: DOMRect): ImageEl[] {
@@ -110,7 +150,8 @@ async function waitForImages(root: HTMLElement): Promise<void> {
 }
 
 function boxFromBlock(el: HTMLElement, secRect: DOMRect): Box | null {
-  if (el.tagName === 'HR') return null
+  // Tables are handled separately as editable TableEls, not text boxes.
+  if (el.tagName === 'HR' || el.tagName === 'TABLE') return null
   const rect = el.getBoundingClientRect()
   if (rect.width < 1 || rect.height < 1) return null
 
@@ -180,6 +221,8 @@ function extractRuns(root: HTMLElement, base: Base): TextRun[] {
         ensureNL()
         return
       }
+      // A nested table is extracted as its own TableEl; don't inline its text.
+      if (tag === 'TABLE') return
       if (tag === 'UL' || tag === 'OL') {
         ensureNL()
         walk(el, tag === 'OL' ? { n: 0 } : null, depth + 1)

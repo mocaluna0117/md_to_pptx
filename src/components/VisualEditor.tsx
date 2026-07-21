@@ -7,10 +7,10 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { SLIDE_W, SLIDE_H, newBox, newSlide, type Box, type Deck, type Slide } from '../lib/deck'
+import { SLIDE_W, SLIDE_H, newBox, newSlide, newTable, type Box, type Deck, type Slide, type TableEl } from '../lib/deck'
 import { runsToHtml, htmlToRuns } from '../lib/richText'
 
-/** Anything positioned on a slide (a text box or an image). */
+/** Anything positioned on a slide (a text box, an image, or a table). */
 interface Rect {
   id: string
   x: number
@@ -71,6 +71,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   const [si, setSi] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // A table cell currently being edited (plain-text contentEditable).
+  const [editingCell, setEditingCell] = useState<{ id: string; r: number; c: number } | null>(null)
   const [ppi, setPpi] = useState(88) // pixels per inch of the stage
 
   const stageRef = useRef<HTMLDivElement>(null)
@@ -103,6 +105,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   selectedIdRef.current = selectedId
   const editingIdRef = useRef(editingId)
   editingIdRef.current = editingId
+  const editingCellRef = useRef(editingCell)
+  editingCellRef.current = editingCell
 
   // Measure the stage to convert inches <-> pixels.
   useLayoutEffect(() => {
@@ -187,6 +191,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                   ...s,
                   boxes: s.boxes.filter((b) => b.id !== id),
                   images: (s.images ?? []).filter((im) => im.id !== id),
+                  tables: (s.tables ?? []).filter((t) => t.id !== id),
                 },
           ),
         )
@@ -230,7 +235,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
       ),
     )
   }
-  /** Move/resize a box or an image (whichever matches the id). */
+  /** Move/resize a box, image, or table (whichever matches the id). */
   function patchElement(id: string, patch: Partial<Rect>, coalesceKey?: number) {
     const d = deckRef.current
     commit(
@@ -241,10 +246,27 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               ...s,
               boxes: s.boxes.map((b) => (b.id === id ? { ...b, ...patch } : b)),
               images: (s.images ?? []).map((im) => (im.id === id ? { ...im, ...patch } : im)),
+              tables: (s.tables ?? []).map((t) => (t.id === id ? { ...t, ...patch } : t)),
             },
       ),
       coalesceKey,
     )
+  }
+  function patchTable(id: string, patch: Partial<TableEl>) {
+    const d = deckRef.current
+    commit(
+      d.slides.map((s, i) =>
+        i !== siRef.current ? s : { ...s, tables: (s.tables ?? []).map((t) => (t.id === id ? { ...t, ...patch } : t)) },
+      ),
+    )
+  }
+  /** Write a single edited table cell back into the model (no-op if unchanged). */
+  function commitCell(id: string, r: number, c: number, text: string) {
+    const s = deckRef.current.slides[siRef.current]
+    const tb = (s.tables ?? []).find((t) => t.id === id)
+    if (!tb || tb.rows[r]?.[c] === text) return
+    const rows = tb.rows.map((row, ri) => (ri !== r ? row : row.map((cell, ci) => (ci !== c ? cell : text))))
+    patchTable(id, { rows })
   }
   function patchSlide(patch: Partial<Deck['slides'][number]>) {
     commit(deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, ...patch })))
@@ -261,7 +283,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   }
 
   function startDrag(el: Rect, mode: 'move' | 'resize', e: ReactPointerEvent) {
-    if (editingId === el.id) return
+    if (editingId === el.id || editingCellRef.current) return
     e.stopPropagation()
     if (editingId) stopEditing()
     setSelectedId(el.id)
@@ -280,17 +302,30 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     commit(deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, boxes: [...s.boxes, box] })))
     setSelectedId(box.id)
   }
+  function addTable() {
+    const table = newTable()
+    commit(deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, tables: [...(s.tables ?? []), table] })))
+    setSelectedId(table.id)
+  }
+  function startCellEdit(id: string, r: number, c: number) {
+    if (editingId) stopEditing()
+    setSelectedId(id)
+    setEditingCell({ id, r, c })
+  }
   function deleteSelected() {
     if (!selectedId) return
     const id = selectedId
+    setEditingCell(null)
     patchSlide({
       boxes: slide.boxes.filter((b) => b.id !== id),
       images: (slide.images ?? []).filter((im) => im.id !== id),
+      tables: (slide.tables ?? []).filter((t) => t.id !== id),
     })
     setSelectedId(null)
   }
   function selectSlide(index: number) {
     if (editingId) stopEditing()
+    setEditingCell(null)
     setSelectedId(null)
     setSi(index)
   }
@@ -325,9 +360,15 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
 
   const selectedBox = slide?.boxes.find((b) => b.id === selectedId) ?? null
   const selectedImage = slide?.images?.find((im) => im.id === selectedId) ?? null
-  const selectedEl: Rect | null = selectedBox ?? selectedImage ?? null
+  const selectedTable = slide?.tables?.find((t) => t.id === selectedId) ?? null
+  const selectedEl: Rect | null = selectedBox ?? selectedImage ?? selectedTable ?? null
+  const selectedKind = selectedBox ? 'テキストボックス' : selectedImage ? '画像' : '表'
 
   function changeFontSize(delta: number) {
+    if (selectedTable) {
+      patchTable(selectedTable.id, { fontSize: clamp(selectedTable.fontSize + delta, 8, 240) })
+      return
+    }
     if (!selectedBox) return
     // While editing with a non-empty selection, resize only the selected text.
     if (editingId === selectedBox.id && applyFontDeltaToSelection(delta)) return
@@ -399,41 +440,39 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
 
         <div className="vgroup">
           <button onClick={addBox} data-tip="テキストボックスを追加">＋テキストボックス</button>
+          <button onClick={addTable} data-tip="表を追加">＋表</button>
         </div>
 
         {selectedEl && (
           <div className="vgroup">
-            {selectedBox && (
+            {(selectedBox || selectedTable) && (
               <>
-                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} data-tip="文字を小さく（範囲選択中は選択部分のみ）">
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(-2)} data-tip={selectedTable ? '文字を小さく' : '文字を小さく（範囲選択中は選択部分のみ）'}>
                   A−
                 </button>
-                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} data-tip="文字を大きく（範囲選択中は選択部分のみ）">
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => changeFontSize(2)} data-tip={selectedTable ? '文字を大きく' : '文字を大きく（範囲選択中は選択部分のみ）'}>
                   A＋
                 </button>
-                {(['left', 'center', 'right'] as const).map((a) => (
-                  <button
-                    key={a}
-                    onMouseDown={(e) => e.preventDefault()}
-                    className={`vicon${selectedBox.align === a ? ' active' : ''}`}
-                    onClick={() => patchBox(selectedBox.id, { align: a })}
-                    data-tip={ALIGN_LABEL[a]}
-                    aria-label={ALIGN_LABEL[a]}
-                  >
-                    <AlignIcon dir={a} />
-                  </button>
-                ))}
               </>
             )}
+            {selectedBox &&
+              (['left', 'center', 'right'] as const).map((a) => (
+                <button
+                  key={a}
+                  onMouseDown={(e) => e.preventDefault()}
+                  className={`vicon${selectedBox.align === a ? ' active' : ''}`}
+                  onClick={() => patchBox(selectedBox.id, { align: a })}
+                  data-tip={ALIGN_LABEL[a]}
+                  aria-label={ALIGN_LABEL[a]}
+                >
+                  <AlignIcon dir={a} />
+                </button>
+              ))}
             <button
               onClick={deleteSelected}
-              data-tip={
-                selectedBox
-                  ? '選択しているテキストボックスを削除（Backspace / Delete でも削除できます）'
-                  : '選択している画像を削除（Backspace / Delete でも削除できます）'
-              }
+              data-tip={`選択している${selectedKind}を削除（Backspace / Delete でも削除できます）`}
             >
-              🗑 {selectedBox ? '選択しているテキストボックスを削除' : '選択している画像を削除'}
+              🗑 選択している{selectedKind}を削除
             </button>
           </div>
         )}
@@ -488,10 +527,52 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
           onPointerDown={(e) => {
             if (e.target === e.currentTarget) {
               if (editingId) stopEditing()
+              setEditingCell(null)
               setSelectedId(null)
             }
           }}
         >
+          {(slide.tables ?? []).map((tb) => (
+            <div
+              key={tb.id}
+              className={`vtable${selectedId === tb.id ? ' selected' : ''}`}
+              style={{ left: tb.x * ppi, top: tb.y * ppi, width: tb.w * ppi, height: tb.h * ppi, fontSize: (tb.fontSize * ppi) / 72 }}
+              onPointerDown={(e) => startDrag(tb, 'move', e)}
+            >
+              <table className="vtable-grid">
+                <tbody>
+                  {tb.rows.map((row, r) => (
+                    <tr key={r}>
+                      {row.map((cell, c) => {
+                        const cls = tb.header && r === 0 ? 'vth' : undefined
+                        const editing = editingCell?.id === tb.id && editingCell.r === r && editingCell.c === c
+                        return editing ? (
+                          <EditableCell
+                            key={c}
+                            initial={cell}
+                            className={cls}
+                            onCommit={(text) => commitCell(tb.id, r, c, text)}
+                            onEnd={() => setEditingCell(null)}
+                          />
+                        ) : (
+                          <td
+                            key={c}
+                            className={cls}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation()
+                              startCellEdit(tb.id, r, c)
+                            }}
+                          >
+                            {cell || ' '}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
           {(slide.images ?? []).map((im) => (
             <img
               key={im.id}
@@ -534,6 +615,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                 onPointerDown={(e) => startDrag(box, 'move', e)}
                 onDoubleClick={(e) => {
                   e.stopPropagation()
+                  setEditingCell(null)
                   setSelectedId(box.id)
                   setEditingId(box.id)
                 }}
@@ -603,6 +685,27 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
             dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs, ppi) }}
           />
         ))}
+        {(slide.tables ?? []).map((tb) => (
+          <div
+            key={tb.id}
+            className="vthumb-table"
+            style={{ left: tb.x * ppi, top: tb.y * ppi, width: tb.w * ppi, height: tb.h * ppi, fontSize: (tb.fontSize * ppi) / 72 }}
+          >
+            <table>
+              <tbody>
+                {tb.rows.map((row, r) => (
+                  <tr key={r}>
+                    {row.map((cell, c) => (
+                      <td key={c} className={tb.header && r === 0 ? 'vth' : undefined}>
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
       </div>
       {onDelete && (
         <button
@@ -668,6 +771,56 @@ function EditableBox({ box, style, ppi, editRef, onSync, onCommit }: EditableBox
         if (e.key === 'Escape') {
           e.preventDefault()
           onCommit()
+        }
+      }}
+    />
+  )
+}
+
+interface EditableCellProps {
+  initial: string
+  className?: string
+  onCommit: (text: string) => void
+  onEnd: () => void
+}
+
+/** A single table cell edited as plain text (commits on blur / unmount). */
+function EditableCell({ initial, className, onCommit, onEnd }: EditableCellProps) {
+  const ref = useRef<HTMLTableCellElement>(null)
+  const onCommitRef = useRef(onCommit)
+  onCommitRef.current = onCommit
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.textContent = initial
+    el.focus()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    return () => onCommitRef.current(el.textContent ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <td
+      ref={ref}
+      className={className}
+      contentEditable
+      suppressContentEditableWarning
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        onCommitRef.current(e.currentTarget.textContent ?? '')
+        onEnd()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+          e.preventDefault()
+          ;(e.currentTarget as HTMLElement).blur()
         }
       }}
     />

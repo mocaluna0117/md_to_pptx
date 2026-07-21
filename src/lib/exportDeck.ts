@@ -42,6 +42,30 @@ export async function exportDeckToPptx(deck: Deck, options: ExportOptions = {}):
         fontFace: 'Arial',
       })
     }
+    for (const tb of slide.tables ?? []) {
+      const cols = Math.max(1, ...tb.rows.map((r) => r.length))
+      const rows: PptxGen.TableRow[] = tb.rows.map((row, r) => {
+        const isHeader = tb.header && r === 0
+        return Array.from({ length: cols }, (_, c) => ({
+          text: row[c] ?? '',
+          options: isHeader ? { bold: true, fill: { color: 'EEF2F7' } } : {},
+        }))
+      })
+      const w = clamp(tb.w, 0.5, SLIDE_W)
+      s.addTable(rows, {
+        x: clamp(tb.x, 0, SLIDE_W),
+        y: clamp(tb.y, 0, SLIDE_H),
+        w,
+        h: clamp(tb.h, 0.3, SLIDE_H),
+        colW: Array(cols).fill(w / cols),
+        fontSize: tb.fontSize,
+        fontFace: 'Arial',
+        color: '111111',
+        valign: 'middle',
+        border: { type: 'solid', pt: 0.5, color: 'CCCCCC' },
+        autoPage: false,
+      })
+    }
     onProgress?.(idx + 1, deck.slides.length)
   })
 
