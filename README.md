@@ -1,7 +1,8 @@
-# Markdown → PowerPoint
+# Deckdown
 
-Markdown（Marp 記法）をブラウザ上で編集し、**PowerPoint で編集できる .pptx** や **PDF** に
-書き出せる Web アプリ。**バックエンド不要 / フロントエンドだけで完結**します。
+**Markdown → PowerPoint。** Markdown（Marp 記法）をブラウザ上で編集し、
+**PowerPoint で編集できる .pptx** や **PDF** に書き出せる Web アプリ。
+**バックエンド不要 / フロントエンドだけで完結**します。
 
 ## 使い方
 

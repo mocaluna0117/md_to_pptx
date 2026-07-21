@@ -309,10 +309,8 @@ function App() {
     <div className="app">
       <header className="toolbar">
         <div className="brand">
-          <span className="logo" aria-hidden>
-            🖥️
-          </span>
-          <h1>Markdown → PowerPoint</h1>
+          <h1>Deckdown</h1>
+          <span className="tagline">Markdown → PowerPoint</span>
         </div>
         <div className="actions">
           <button
