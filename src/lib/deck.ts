@@ -54,17 +54,27 @@ export interface TableEl {
   fontSize: number
   /** Per-column width fractions (sum ≈ 1); falls back to equal columns. */
   colFr?: number[]
+  /** Per-row height fractions (sum ≈ 1); falls back to equal rows. */
+  rowFr?: number[]
 }
 
 /** Normalized per-column width fractions for a table (equal columns as fallback). */
 export function tableColFractions(tb: TableEl): number[] {
   const cols = Math.max(1, ...tb.rows.map((r) => r.length))
-  const fr = tb.colFr
-  if (fr && fr.length === cols) {
+  return normFractions(tb.colFr, cols)
+}
+
+/** Normalized per-row height fractions for a table (equal rows as fallback). */
+export function tableRowFractions(tb: TableEl): number[] {
+  return normFractions(tb.rowFr, Math.max(1, tb.rows.length))
+}
+
+function normFractions(fr: number[] | undefined, n: number): number[] {
+  if (fr && fr.length === n) {
     const sum = fr.reduce((a, b) => a + b, 0)
     if (sum > 0) return fr.map((f) => f / sum)
   }
-  return Array(cols).fill(1 / cols)
+  return Array(n).fill(1 / n)
 }
 
 export interface Slide {

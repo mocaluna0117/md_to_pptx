@@ -96,13 +96,21 @@ function tablesFromSection(section: HTMLElement, secRect: DOMRect): TableEl[] {
     }
     if (rows.length === 0) continue
 
+    const trEls = Array.from(table.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr'))
+
     // Column width fractions from the rendered first row.
     let colFr: number[] | undefined
-    const firstRow = table.querySelector(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
-    if (firstRow) {
-      const widths = Array.from(firstRow.children).map((c) => c.getBoundingClientRect().width)
+    if (trEls[0]) {
+      const widths = Array.from(trEls[0].children).map((c) => c.getBoundingClientRect().width)
       const sum = widths.reduce((a, b) => a + b, 0)
       if (sum > 0) colFr = widths.map((w) => round(w / sum))
+    }
+    // Row height fractions from the rendered rows.
+    let rowFr: number[] | undefined
+    if (trEls.length === rows.length) {
+      const heights = trEls.map((tr) => tr.getBoundingClientRect().height)
+      const sum = heights.reduce((a, b) => a + b, 0)
+      if (sum > 0) rowFr = heights.map((h) => round(h / sum))
     }
 
     const fontSize = round(pxToPt(parseFloat(getComputedStyle(table).fontSize) || 18))
@@ -116,6 +124,7 @@ function tablesFromSection(section: HTMLElement, secRect: DOMRect): TableEl[] {
       header,
       fontSize,
       colFr,
+      rowFr,
     })
   }
   return out

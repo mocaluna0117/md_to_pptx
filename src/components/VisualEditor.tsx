@@ -7,7 +7,7 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { SLIDE_W, SLIDE_H, newBox, newSlide, newTable, tableColFractions, type Box, type Deck, type Slide, type TableEl } from '../lib/deck'
+import { SLIDE_W, SLIDE_H, newBox, newSlide, newTable, tableColFractions, tableRowFractions, type Box, type Deck, type Slide, type TableEl } from '../lib/deck'
 import { runsToHtml, htmlToRuns } from '../lib/richText'
 
 /** Anything positioned on a slide (a text box, an image, or a table). */
@@ -96,8 +96,10 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     }
   >(null)
   const keyCounterRef = useRef(0)
-  // Column-width drag (table id + which internal boundary).
-  const colDragRef = useRef<null | { id: string; index: number; sx: number; base: number[]; key: number }>(null)
+  // Column-width / row-height drag (table id, axis, which internal boundary).
+  const bandDragRef = useRef<
+    null | { id: string; axis: 'col' | 'row'; index: number; s: number; base: number[]; key: number }
+  >(null)
 
   const slideIndex = Math.min(si, deck.slides.length - 1)
   const slide = deck.slides[slideIndex]
@@ -124,19 +126,21 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   // Persistent drag/resize listeners.
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
-      const cd = colDragRef.current
-      if (cd) {
-        const tb = (deckRef.current.slides[siRef.current].tables ?? []).find((t) => t.id === cd.id)
+      const bd = bandDragRef.current
+      if (bd) {
+        const tb = (deckRef.current.slides[siRef.current].tables ?? []).find((t) => t.id === bd.id)
         if (!tb) return
-        const dfr = (e.clientX - cd.sx) / (tb.w * ppiRef.current)
-        const i = cd.index
-        const pair = cd.base[i] + cd.base[i + 1]
+        const span = bd.axis === 'col' ? tb.w : tb.h
+        const cur = bd.axis === 'col' ? e.clientX : e.clientY
+        const dfr = (cur - bd.s) / (span * ppiRef.current)
+        const i = bd.index
+        const pair = bd.base[i] + bd.base[i + 1]
         const min = 0.05
-        const fi = clamp(cd.base[i] + dfr, min, pair - min)
-        const next = cd.base.slice()
+        const fi = clamp(bd.base[i] + dfr, min, pair - min)
+        const next = bd.base.slice()
         next[i] = fi
         next[i + 1] = pair - fi
-        patchTable(cd.id, { colFr: next }, cd.key)
+        patchTable(bd.id, bd.axis === 'col' ? { colFr: next } : { rowFr: next }, bd.key)
         return
       }
       const d = dragRef.current
@@ -151,7 +155,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     }
     const onUp = () => {
       dragRef.current = null
-      colDragRef.current = null
+      bandDragRef.current = null
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -331,10 +335,17 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     setSelectedId(id)
     setEditingCell({ id, r, c })
   }
-  function startColDrag(tb: TableEl, index: number, e: ReactPointerEvent) {
+  function startBandDrag(tb: TableEl, axis: 'col' | 'row', index: number, e: ReactPointerEvent) {
     e.stopPropagation()
     setSelectedId(tb.id)
-    colDragRef.current = { id: tb.id, index, sx: e.clientX, base: tableColFractions(tb), key: (keyCounterRef.current += 1) }
+    bandDragRef.current = {
+      id: tb.id,
+      axis,
+      index,
+      s: axis === 'col' ? e.clientX : e.clientY,
+      base: axis === 'col' ? tableColFractions(tb) : tableRowFractions(tb),
+      key: (keyCounterRef.current += 1),
+    }
   }
   function deleteSelected() {
     if (!selectedId) return
@@ -558,6 +569,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
         >
           {(slide.tables ?? []).map((tb) => {
             const fractions = tableColFractions(tb)
+            const rowFractions = tableRowFractions(tb)
             return (
             <div
               key={tb.id}
@@ -573,7 +585,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                 </colgroup>
                 <tbody>
                   {tb.rows.map((row, r) => (
-                    <tr key={r}>
+                    <tr key={r} style={{ height: `${rowFractions[r] * 100}%` }}>
                       {row.map((cell, c) => {
                         const cls = tb.header && r === 0 ? 'vth' : undefined
                         const editing = editingCell?.id === tb.id && editingCell.r === r && editingCell.c === c
@@ -610,7 +622,19 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                       key={`col-${i}`}
                       className="vcolresize"
                       style={{ left: boundary * tb.w * ppi }}
-                      onPointerDown={(e) => startColDrag(tb, i, e)}
+                      onPointerDown={(e) => startBandDrag(tb, 'col', i, e)}
+                    />
+                  )
+                })}
+              {selectedId === tb.id &&
+                rowFractions.slice(0, -1).map((_, i) => {
+                  const boundary = rowFractions.slice(0, i + 1).reduce((a, b) => a + b, 0)
+                  return (
+                    <div
+                      key={`row-${i}`}
+                      className="vrowresize"
+                      style={{ top: boundary * tb.h * ppi }}
+                      onPointerDown={(e) => startBandDrag(tb, 'row', i, e)}
                     />
                   )
                 })}
@@ -743,7 +767,7 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
               </colgroup>
               <tbody>
                 {tb.rows.map((row, r) => (
-                  <tr key={r}>
+                  <tr key={r} style={{ height: `${tableRowFractions(tb)[r] * 100}%` }}>
                     {row.map((cell, c) => (
                       <td key={c} className={tb.header && r === 0 ? 'vth' : undefined}>
                         {cell}

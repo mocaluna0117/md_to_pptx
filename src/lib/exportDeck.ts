@@ -1,5 +1,5 @@
 import PptxGen from 'pptxgenjs'
-import { SLIDE_W, SLIDE_H, tableColFractions, type Box, type Deck, type TextRun } from './deck'
+import { SLIDE_W, SLIDE_H, tableColFractions, tableRowFractions, type Box, type Deck, type TextRun } from './deck'
 
 export interface ExportOptions {
   fileName?: string
@@ -52,13 +52,16 @@ export async function exportDeckToPptx(deck: Deck, options: ExportOptions = {}):
         }))
       })
       const w = clamp(tb.w, 0.5, SLIDE_W)
+      const h = clamp(tb.h, 0.3, SLIDE_H)
       const fr = tableColFractions(tb)
+      const rowFr = tableRowFractions(tb)
       s.addTable(rows, {
         x: clamp(tb.x, 0, SLIDE_W),
         y: clamp(tb.y, 0, SLIDE_H),
         w,
-        h: clamp(tb.h, 0.3, SLIDE_H),
+        h,
         colW: fr.map((f) => f * w),
+        rowH: rowFr.map((f) => f * h),
         fontSize: tb.fontSize,
         fontFace: 'Arial',
         color: '111111',

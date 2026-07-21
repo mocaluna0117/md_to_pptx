@@ -825,6 +825,31 @@
   width: 3px;
 }
 
+.vrowresize {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 13px;
+  transform: translateY(-50%);
+  cursor: row-resize;
+  z-index: 4;
+  touch-action: none;
+}
+.vrowresize::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(91, 140, 255, 0.6);
+}
+.vrowresize:hover::after {
+  background: var(--accent);
+  height: 3px;
+}
+
 /* ---- Tables (thumbnail) ---- */
 .vthumb-table {
   position: absolute;
