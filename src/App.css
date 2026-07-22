@@ -5,6 +5,41 @@
   min-height: 0;
 }
 
+/* Left toolbar cell wrapper (home + help). */
+.tb-left {
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Home button (left toolbar cell) for navigating back to the launcher. */
+.home-btn {
+  grid-column: 1;
+  justify-self: start;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.home-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Toggle-only drawer handle (Docdown has no width drag). */
+.md-handle.toggle {
+  cursor: pointer;
+  touch-action: auto;
+}
+
 /* ---- "使い方" help ---- */
 .help-btn {
   grid-column: 1;

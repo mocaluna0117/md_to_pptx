@@ -1,8 +1,14 @@
-# Deckdown
+# Markdown → Office（Deckdown / Docdown）
 
-**Markdown → PowerPoint。** Markdown（Marp 記法）をブラウザ上で編集し、
-**PowerPoint で編集できる .pptx** や **PDF** に書き出せる Web アプリ。
-**バックエンド不要 / フロントエンドだけで完結**します。
+Markdown を、そのまま **編集できる PowerPoint / Word** に変換する Web アプリ。
+**バックエンド不要 / フロントエンドだけで完結**します。起動するとランチャー（ホーム）が開き、
+2 つのツールを選べます。
+
+- **Deckdown** — Markdown → **PowerPoint（.pptx）** / PDF。スライドを直接編集して書き出し。
+- **Docdown** — Markdown → **Word（.docx）**。文書としてプレビューして書き出し（`docx` ライブラリで生成）。
+
+3 ページ構成（ホーム／Deckdown／Docdown）で、ハッシュルーティング（`#/`・`#/slides`・`#/docx`）。
+各ツール左上の **⌂** でホームに戻れます。以降は主に **Deckdown** の説明です。
 
 ## 使い方
 

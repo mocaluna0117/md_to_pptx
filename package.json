@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@marp-team/marp-core": "^4.4.0",
+    "docx": "^9.7.1",
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.1",
     "markdown-it": "^14.3.0",

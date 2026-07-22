@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { navigate } from './Root'
 import { exportDeckToPptx } from './lib/exportDeck'
 import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
@@ -394,9 +395,14 @@ function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <button className="help-btn" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
-          ？ 使い方
-        </button>
+        <div className="tb-left">
+          <button className="home-btn" onClick={() => navigate('home')} title="ホームに戻る" aria-label="ホームに戻る">
+            ⌂
+          </button>
+          <button className="help-btn" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
+            ？ 使い方
+          </button>
+        </div>
         <div className="brand">
           <h1>Deckdown</h1>
           <span className="tagline">Markdown → PowerPoint</span>

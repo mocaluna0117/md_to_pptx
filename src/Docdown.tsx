@@ -1,0 +1,247 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import MarkdownIt from 'markdown-it'
+import { navigate } from './Root'
+import { exportMarkdownToDocx } from './lib/exportDocx'
+import './App.css'
+import './Docdown.css'
+
+const STORAGE_KEY = 'docdown:v1'
+const mdRender = new MarkdownIt({ html: false, linkify: true, breaks: false })
+
+const SAMPLE = `# ドキュメントのタイトル
+
+Markdown で書いた文章を、そのまま **編集できる Word（.docx）** に書き出せます。
+**太字**・*斜体*・\`コード\`・[リンク](https://example.com) が使えます。
+
+## 使い方
+
+1. 左の「Markdown」に文章を書く（またはインポート）
+2. 中央のプレビューで見た目を確認
+3. 右上の「Word で書き出す」でダウンロード
+
+## 対応している記法
+
+- 見出し（\`#\`〜\`######\`）
+- 箇条書き / 番号付きリスト（ネスト可）
+- 表
+
+| 項目 | 説明 |
+| --- | --- |
+| 見出し | Word の見出しスタイルに変換 |
+| 表 | ネイティブの Word の表に変換 |
+
+> 引用も使えます。
+
+\`\`\`
+コードブロックは等幅で出力されます
+\`\`\`
+`
+
+interface Persisted {
+  markdown?: string
+  fileName?: string
+  mdOpen?: boolean
+}
+
+function loadPersisted(): Persisted {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Persisted
+  } catch {
+    return {}
+  }
+}
+const persisted = loadPersisted()
+
+/** Remove a leading YAML front-matter block (--- … ---). */
+function stripFrontmatter(m: string): string {
+  return m.replace(/^﻿?---[^\n]*\n[\s\S]*?\n---[^\n]*\n?/, '')
+}
+/** Append an imported Markdown to the current one (own front-matter dropped). */
+function mergeMarkdown(base: string, add: string): string {
+  if (!base.trim()) return add
+  const body = stripFrontmatter(add).trim()
+  if (!body) return base
+  return `${base.trimEnd()}\n\n${body}\n`
+}
+
+type Status = 'idle' | 'exporting' | { error: string }
+
+export default function Docdown() {
+  const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
+  const [fileName, setFileName] = useState(persisted.fileName ?? 'document')
+  const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
+  const [status, setStatus] = useState<Status>('idle')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const importModeRef = useRef<'replace' | 'append'>('replace')
+
+  const html = useMemo(() => mdRender.render(stripFrontmatter(markdown)), [markdown])
+  const exporting = status === 'exporting'
+  const error = typeof status === 'object' ? status.error : null
+
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen }))
+      } catch {
+        /* ignore */
+      }
+    }, 300)
+    return () => clearTimeout(id)
+  }, [markdown, fileName, mdOpen])
+
+  async function importFile(file: File, mode: 'replace' | 'append') {
+    try {
+      const text = await file.text()
+      if (mode === 'append') {
+        setMarkdown((cur) => mergeMarkdown(cur, text))
+      } else {
+        setMarkdown(text)
+        const base = file.name.replace(/\.[^.]+$/, '')
+        if (base) setFileName(base)
+      }
+    } catch {
+      setStatus({ error: 'ファイルの読み込みに失敗しました。' })
+    }
+  }
+
+  async function handleExport() {
+    setStatus('exporting')
+    try {
+      await exportMarkdownToDocx(markdown, { fileName })
+      setStatus('idle')
+    } catch (err) {
+      setStatus({ error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  function resetToDefault() {
+    if (!window.confirm('内容を初期状態に戻します。よろしいですか？')) return
+    setMarkdown(SAMPLE)
+    setFileName('document')
+    setStatus('idle')
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <div className="app">
+      <header className="toolbar">
+        <button className="home-btn" onClick={() => navigate('home')} title="ホームに戻る" aria-label="ホームに戻る">
+          ⌂
+        </button>
+        <div className="brand">
+          <h1>Docdown</h1>
+          <span className="tagline">Markdown → Word</span>
+        </div>
+        <div className="actions">
+          <button className="reset" onClick={resetToDefault} title="内容を初期状態に戻す">
+            🔄 初期化
+          </button>
+          <label className="filename">
+            <span className="fn-label">ファイル名</span>
+            <input
+              type="text"
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+              placeholder="document"
+              spellCheck={false}
+              aria-label="ファイル名"
+            />
+          </label>
+          <button className="export" onClick={handleExport} disabled={exporting}>
+            {exporting ? '書き出し中…' : 'Word で書き出す'}
+          </button>
+        </div>
+      </header>
+
+      <div className="banner info">
+        左の「Markdown」タブで文章を書く／インポートし、中央のプレビューで確認して、右上から <b>Word（.docx）</b> に書き出せます。
+      </div>
+
+      {error && (
+        <div className="banner error" role="alert">
+          ⚠️ {error}
+        </div>
+      )}
+
+      <div className="workspace">
+        <aside className={`md-drawer${mdOpen ? ' open' : ''}`} style={{ width: mdOpen ? 360 : 0 }}>
+          <div
+            className="md-inner"
+            style={{ width: 360 }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              const f = e.dataTransfer.files?.[0]
+              if (f && /\.(md|markdown|mdown|txt)$/i.test(f.name)) importFile(f, 'replace')
+            }}
+          >
+            <div className="pane-head">
+              <span>Markdown</span>
+              <span className="loadmd-group">
+                <button
+                  className="loadmd"
+                  onClick={() => {
+                    importModeRef.current = 'replace'
+                    fileInputRef.current?.click()
+                  }}
+                  title="Markdown を読み込み（現在の内容を置き換え）"
+                >
+                  📂 インポート
+                </button>
+                <button
+                  className="loadmd"
+                  onClick={() => {
+                    importModeRef.current = 'append'
+                    fileInputRef.current?.click()
+                  }}
+                  title="別の Markdown を現在の内容に結合"
+                >
+                  ＋ 結合
+                </button>
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) importFile(f, importModeRef.current)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+            <textarea
+              className="editor"
+              value={markdown}
+              onChange={(e) => setMarkdown(e.target.value)}
+              spellCheck={false}
+            />
+          </div>
+        </aside>
+
+        <button
+          className="md-handle toggle"
+          onClick={() => setMdOpen((o) => !o)}
+          aria-expanded={mdOpen}
+          title={mdOpen ? 'Markdown を閉じる' : 'Markdown を開く'}
+        >
+          <span className="md-handle-text">Markdown</span>
+          <span className="md-handle-arrow" aria-hidden>
+            {mdOpen ? '◀' : '▶'}
+          </span>
+        </button>
+
+        <main className="doc-main">
+          <div className="doc-scroll">
+            <div className="doc-page" dangerouslySetInnerHTML={{ __html: html }} />
+          </div>
+        </main>
+      </div>
+    </div>
+  )
+}

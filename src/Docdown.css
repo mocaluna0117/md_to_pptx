@@ -1,0 +1,145 @@
+.doc-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+
+.doc-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 28px 24px;
+}
+
+/* A page-like sheet, always light (documents are printed white). */
+.doc-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 56px 64px;
+  background: #ffffff;
+  color: #1f2328;
+  border: 1px solid #e2e5ea;
+  border-radius: 4px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.28);
+  font-family: 'Calibri', 'Segoe UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', sans-serif;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.doc-page > :first-child {
+  margin-top: 0;
+}
+.doc-page > :last-child {
+  margin-bottom: 0;
+}
+
+.doc-page h1,
+.doc-page h2,
+.doc-page h3,
+.doc-page h4,
+.doc-page h5,
+.doc-page h6 {
+  margin: 1.5em 0 0.5em;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #111418;
+}
+.doc-page h1 {
+  font-size: 1.9em;
+  border-bottom: 2px solid #e2e5ea;
+  padding-bottom: 0.2em;
+}
+.doc-page h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 0.15em;
+}
+.doc-page h3 {
+  font-size: 1.25em;
+}
+.doc-page h4 {
+  font-size: 1.1em;
+}
+
+.doc-page p {
+  margin: 0 0 0.9em;
+}
+
+.doc-page ul,
+.doc-page ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.6em;
+}
+.doc-page li {
+  margin: 0.2em 0;
+}
+
+.doc-page a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.doc-page strong {
+  font-weight: 700;
+}
+.doc-page em {
+  font-style: italic;
+}
+
+.doc-page code {
+  font-family: 'Consolas', ui-monospace, Menlo, monospace;
+  font-size: 0.9em;
+  background: #f0f0f0;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.doc-page pre {
+  margin: 0 0 0.9em;
+  padding: 12px 14px;
+  background: #f5f5f5;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.doc-page pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.88em;
+  line-height: 1.5;
+}
+
+.doc-page blockquote {
+  margin: 0 0 0.9em;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 4px solid #cbd5e1;
+  color: #4b5563;
+}
+
+.doc-page table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  font-size: 0.95em;
+}
+.doc-page th,
+.doc-page td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-page th {
+  background: #eef2f7;
+  font-weight: 700;
+}
+
+.doc-page hr {
+  border: none;
+  border-top: 1px solid #cbd5e1;
+  margin: 1.5em 0;
+}
+
+.doc-page img {
+  max-width: 100%;
+}
