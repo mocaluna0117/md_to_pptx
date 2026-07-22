@@ -664,6 +664,19 @@
   padding: 0;
 }
 
+/* Bold / italic buttons for the selected text. */
+.vtoolbar button.vstyle {
+  min-width: 32px;
+  font-size: 15px;
+}
+.vtoolbar button.vstyle b {
+  font-weight: 800;
+}
+.vtoolbar button.vstyle i {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+}
+
 .vcount {
   font-size: 13px;
   color: var(--text-dim);

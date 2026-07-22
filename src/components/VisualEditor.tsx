@@ -393,6 +393,22 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     syncEditing()
   }
 
+  /** Toggle bold/italic on the current selection using <b>/<i> tags (read back by htmlToRuns). */
+  function applyStyle(command: 'bold' | 'italic') {
+    const el = editRef.current
+    if (!el) return
+    el.focus()
+    const sel = window.getSelection()
+    if (savedRange.current && sel) {
+      sel.removeAllRanges()
+      sel.addRange(savedRange.current)
+    }
+    if (!sel || sel.isCollapsed) return
+    document.execCommand('styleWithCSS', false, 'false') // emit <b>/<i>, not CSS
+    document.execCommand(command)
+    syncEditing()
+  }
+
   const selectedBox = slide?.boxes.find((b) => b.id === selectedId) ?? null
   const selectedImage = slide?.images?.find((im) => im.id === selectedId) ?? null
   const selectedTable = slide?.tables?.find((t) => t.id === selectedId) ?? null
@@ -508,6 +524,29 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               data-tip={`選択している${selectedKind}を削除（Backspace / Delete でも削除できます）`}
             >
               🗑 選択している{selectedKind}を削除
+            </button>
+          </div>
+        )}
+
+        {editingId && (
+          <div className="vgroup">
+            <button
+              className="vstyle"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyStyle('bold')}
+              data-tip="太字（選択した文字）"
+              aria-label="太字"
+            >
+              <b>B</b>
+            </button>
+            <button
+              className="vstyle vstyle-i"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyStyle('italic')}
+              data-tip="斜体（選択した文字）"
+              aria-label="斜体"
+            >
+              <i>I</i>
             </button>
           </div>
         )}
