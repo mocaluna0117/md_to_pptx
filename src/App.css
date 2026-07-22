@@ -89,6 +89,11 @@
 .help-body section {
   margin-bottom: 14px;
 }
+.help-body section.help-why {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
 .help-body h3 {
   margin: 0 0 6px;
   font-size: 14px;
