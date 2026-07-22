@@ -32,6 +32,20 @@ interface Props {
 
 const SWATCHES = ['000000', 'E03131', '1971C2', '2F9E44', 'F08C00', '7048E8', '868E96', 'FFFFFF']
 
+// Fonts offered for a text box (value = both the CSS family and the pptx fontFace).
+const FONTS: { label: string; value: string }[] = [
+  { label: '標準（Arial）', value: '' },
+  { label: 'Helvetica', value: 'Helvetica' },
+  { label: 'Times New Roman', value: 'Times New Roman' },
+  { label: 'Georgia', value: 'Georgia' },
+  { label: 'Courier New', value: 'Courier New' },
+  { label: 'メイリオ', value: 'Meiryo' },
+  { label: '游ゴシック', value: 'Yu Gothic' },
+  { label: '游明朝', value: 'Yu Mincho' },
+  { label: 'ＭＳ ゴシック', value: 'MS Gothic' },
+  { label: 'ＭＳ 明朝', value: 'MS Mincho' },
+]
+
 // Word/PowerPoint-style alignment glyphs: stacked bars flushed to the edge.
 type Align = 'left' | 'center' | 'right'
 const ALIGN_BARS: Record<Align, [number, number][]> = {
@@ -506,6 +520,21 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                 </button>
               </>
             )}
+            {selectedBox && (
+              <select
+                className="vfont"
+                value={selectedBox.fontFamily || ''}
+                onChange={(e) => patchBox(selectedBox.id, { fontFamily: e.target.value || undefined })}
+                data-tip="フォント"
+                aria-label="フォント"
+              >
+                {FONTS.map((f) => (
+                  <option key={f.value} value={f.value} style={{ fontFamily: f.value || 'sans-serif' }}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            )}
             {selectedBox &&
               (['left', 'center', 'right'] as const).map((a) => (
                 <button
@@ -700,6 +729,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               fontSize: (box.fontSize * ppi) / 72,
               textAlign: box.align,
               color: box.color ? `#${box.color}` : undefined,
+              fontFamily: box.fontFamily || undefined,
             }
             if (editingId === box.id) {
               return (
@@ -788,6 +818,7 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
               fontSize: (box.fontSize * ppi) / 72,
               textAlign: box.align,
               color: box.color ? `#${box.color}` : undefined,
+              fontFamily: box.fontFamily || undefined,
             }}
             dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs, ppi) }}
           />

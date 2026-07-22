@@ -39,7 +39,7 @@ export async function exportDeckToPptx(deck: Deck, options: ExportOptions = {}):
         color: box.color || undefined,
         align: box.align,
         valign: 'top',
-        fontFace: 'Arial',
+        fontFace: box.fontFamily || 'Arial',
       })
     }
     for (const tb of slide.tables ?? []) {
