@@ -116,6 +116,54 @@
   color: var(--text-dim);
   font-size: 13px;
 }
+.help-sub {
+  margin: 0 0 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.help-prompt {
+  margin: 0 0 10px;
+}
+.help-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.help-copy {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.help-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.help-prompt pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  overflow-x: auto;
+}
 
 /* ---- Toolbar ---- */
 .toolbar {

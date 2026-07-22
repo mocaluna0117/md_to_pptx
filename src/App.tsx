@@ -83,6 +83,49 @@ function mergeMarkdown(base: string, add: string): string {
   return `${base.trimEnd()}\n\n---\n\n${body}\n`
 }
 
+/** Copy text to the clipboard, falling back to execCommand when the async API is unavailable. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* fall through to the legacy path */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+/** A prompt users can hand to an AI (ChatGPT etc.) to generate slide-ready Markdown. */
+const AI_PROMPT = `次の内容をプレゼン用スライドにまとめて、Marp 記法の Markdown（.md）で出力してください。
+
+# ルール
+- 先頭にフロントマターを付ける：
+---
+marp: true
+paginate: true
+---
+- スライドは「---」で区切る
+- 各スライドは「#」（表紙）または「##」（見出し）で始める
+- 箇条書き・表・コードブロックを活用する
+- 装飾は Markdown のみ（HTML タグは使わない）
+
+# まとめたい内容
+（ここに伝えたい内容や、添付画像の説明を書いてください）`
+
 function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
@@ -97,6 +140,14 @@ function App() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [promptCopied, setPromptCopied] = useState(false)
+
+  async function copyPrompt() {
+    if (await copyText(AI_PROMPT)) {
+      setPromptCopied(true)
+      setTimeout(() => setPromptCopied(false), 1500)
+    }
+  }
   const exportWrapRef = useRef<HTMLDivElement>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
 
@@ -540,10 +591,28 @@ function App() {
 
               <section>
                 <h3>1. Markdown を用意する</h3>
+                <p className="help-sub">
+                  基本は AI に作ってもらうのが簡単です。下のプロンプトを ChatGPT などに渡してください。
+                </p>
+                <div className="help-prompt">
+                  <div className="help-prompt-head">
+                    <span>AI へのプロンプト例</span>
+                    <button className="help-copy" onClick={copyPrompt}>
+                      {promptCopied ? '✓ コピーしました' : 'コピー'}
+                    </button>
+                  </div>
+                  <pre>{AI_PROMPT}</pre>
+                </div>
+                <p className="help-sub">
+                  かんたんに <b>「添付画像をスライドにまとめたいから、Marp 形式の .md を作って」</b> のように頼んでもOK。
+                </p>
                 <ul>
-                  <li>左端の縦タブ <b>「Markdown」</b> をクリックで開閉、境界を<b>ドラッグで幅調整</b>。</li>
-                  <li><b>「📂 インポート」</b>で <code>.md</code> / <code>.markdown</code> / <code>.txt</code> を読み込み（ドラッグ＆ドロップも可）。</li>
+                  <li>できた Markdown を <b>「📂 インポート」</b>／ドロワーに貼り付け／ドラッグ＆ドロップ。</li>
                   <li><b>「＋ 結合」</b>で 2 つめ以降の Markdown を現在の内容に連結。</li>
+                  <li>
+                    もちろん <b>自分で 1 から書く</b>こともできます（左端の縦タブ「Markdown」を開いて直接入力・
+                    境界のドラッグで幅調整）。
+                  </li>
                 </ul>
               </section>
 
