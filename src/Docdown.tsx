@@ -3,6 +3,7 @@ import MarkdownIt from 'markdown-it'
 import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import { navigate } from './Root'
 import { exportHtmlToDocx } from './lib/exportDocx'
+import { exportHtmlToPdf } from './lib/exportPdf'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
 import type { DocBox } from './lib/docBox'
@@ -87,9 +88,11 @@ export default function Docdown() {
   const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
   const [images, setImages] = useState<AttachedImages>(persisted.images ?? {})
   const [status, setStatus] = useState<Status>('idle')
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const importModeRef = useRef<'replace' | 'append'>('replace')
+  const exportWrapRef = useRef<HTMLDivElement>(null)
 
   // The edited document (HTML) is the source of truth once the user edits visually;
   // Markdown is the import starting point. `rebuildToken` remounts the editor to reseed.
@@ -188,15 +191,30 @@ export default function Docdown() {
     }
   }
 
-  async function handleExport() {
+  async function handleExport(target: 'docx' | 'pdf') {
+    setExportMenuOpen(false)
     setStatus('exporting')
     try {
-      await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName })
+      if (target === 'pdf') {
+        await exportHtmlToPdf(docHtmlRef.current, boxesRef.current, { fileName })
+      } else {
+        await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName })
+      }
       setStatus('idle')
     } catch (err) {
       setStatus({ error: err instanceof Error ? err.message : String(err) })
     }
   }
+
+  // Close the export dropdown on an outside click.
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!exportWrapRef.current?.contains(e.target as Node)) setExportMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [exportMenuOpen])
 
   function resetToDefault() {
     if (!window.confirm('内容を初期状態に戻します。よろしいですか？')) return
@@ -240,14 +258,34 @@ export default function Docdown() {
               aria-label="ファイル名"
             />
           </label>
-          <button className="export" onClick={handleExport} disabled={exporting}>
-            {exporting ? '書き出し中…' : 'Word で書き出す'}
-          </button>
+          <div className="export-wrap" ref={exportWrapRef}>
+            <button
+              className="export"
+              onClick={() => setExportMenuOpen((o) => !o)}
+              disabled={exporting}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+            >
+              {exporting ? '書き出し中…' : '書き出す ▾'}
+            </button>
+            {exportMenuOpen && !exporting && (
+              <div className="export-menu" role="menu">
+                <button role="menuitem" onClick={() => handleExport('docx')}>
+                  <span className="mi-title">Word（.docx）</span>
+                  <span className="mi-desc">編集できる Word 文書</span>
+                </button>
+                <button role="menuitem" onClick={() => handleExport('pdf')}>
+                  <span className="mi-title">PDF（.pdf）</span>
+                  <span className="mi-desc">レイアウトそのままの PDF</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       <div className="banner info">
-        左の「Markdown」で下書きし <b>「反映」</b> で文書化、中央のプレビューを <b>直接編集</b>（太字・見出し・表）。<b>＋□ ボックス</b> で自由配置のテキストボックスも追加でき（ドラッグ移動・ダブルクリックで編集）、右上から <b>Word（.docx）</b> に書き出せます。
+        左の「Markdown」で下書きし <b>「反映」</b> で文書化、中央のプレビューを <b>直接編集</b>（太字・見出し・表）。<b>＋□ ボックス</b> で自由配置のテキストボックスも追加でき（ドラッグ移動・ダブルクリックで編集）、右上から <b>Word（.docx）/ PDF</b> に書き出せます。
       </div>
 
       {error && (

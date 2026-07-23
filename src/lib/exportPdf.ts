@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
-import { rasterizeDeck, rasterizeMarkdown, type PngSlide } from './rasterize'
+import { rasterizeDeck, rasterizeMarkdown, rasterizeDocument, type PngSlide } from './rasterize'
 import type { Deck } from './deck'
+import type { DocBox } from './docBox'
 
 const PAGE_WIDTH_IN = 10
 
@@ -28,6 +29,33 @@ export async function exportDeckToPdf(deck: Deck, options: ExportOptions = {}): 
     throw new Error('スライドがありません。')
   }
   slidesToPdf(images, fileName)
+}
+
+/**
+ * Rasterize the Docdown document (flowing HTML + floating boxes) into a multi-page
+ * A4 PDF. The tall sheet image is placed once per page at a shifting negative offset
+ * so each page shows the next slice (image-based, like the deck/slide PDFs).
+ */
+export async function exportHtmlToPdf(html: string, boxes: DocBox[] = [], options: ExportOptions = {}): Promise<void> {
+  const { fileName = 'document.pdf', pixelRatio = 2 } = options
+  const img = await rasterizeDocument(html, boxes, { pixelRatio, jpeg: true })
+
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+  const pageW = pdf.internal.pageSize.getWidth()
+  const pageH = pdf.internal.pageSize.getHeight()
+  const imgH = pageW * (img.h / img.w)
+
+  let position = 0
+  let heightLeft = imgH
+  pdf.addImage(img.data, 'JPEG', 0, position, pageW, imgH)
+  heightLeft -= pageH
+  while (heightLeft > 0) {
+    position -= pageH
+    pdf.addPage()
+    pdf.addImage(img.data, 'JPEG', 0, position, pageW, imgH)
+    heightLeft -= pageH
+  }
+  pdf.save(ensureExt(fileName))
 }
 
 function slidesToPdf(images: PngSlide[], fileName: string): void {

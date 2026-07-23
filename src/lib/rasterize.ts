@@ -2,6 +2,7 @@ import * as htmlToImage from 'html-to-image'
 import { renderSlides } from './marp'
 import { SLIDE_W, SLIDE_H, tableColFractions, tableRowFractions, type Deck, type TableEl } from './deck'
 import { runsToHtml } from './richText'
+import type { DocBox } from './docBox'
 
 export interface PngSlide {
   data: string
@@ -129,6 +130,44 @@ export async function rasterizeDeck(deck: Deck, options: RasterizeOptions = {}):
       onProgress?.(i + 1, deck.slides.length)
     }
     return out
+  } finally {
+    document.body.removeChild(stage)
+  }
+}
+
+/** The Docdown page sheet width in px (matches the editor's max-width). */
+const DOC_W = 760
+
+/**
+ * Rasterize the Docdown document (flowing HTML + floating text boxes) into one tall
+ * image, styled to match the on-screen page but without editor chrome. The caller
+ * paginates it into PDF pages. Relies on the app's `.doc-page` CSS being loaded.
+ */
+export async function rasterizeDocument(html: string, boxes: DocBox[], options: RasterizeOptions = {}): Promise<PngSlide> {
+  const { pixelRatio = 2, jpeg = true } = options
+  const stage = createStage()
+  const page = document.createElement('div')
+  page.className = 'doc-page'
+  // Fixed width, no shadow/border/rounding — a clean printable sheet.
+  page.style.cssText = `position:relative;width:${DOC_W}px;max-width:none;margin:0;box-shadow:none;border:none;border-radius:0;`
+  page.innerHTML = html
+  for (const b of boxes) {
+    const el = document.createElement('div')
+    el.style.cssText =
+      `position:absolute;left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;` +
+      `overflow:hidden;box-sizing:border-box;padding:8px 10px;line-height:1.6;`
+    el.innerHTML = b.html || ''
+    page.appendChild(el)
+  }
+  stage.appendChild(page)
+  document.body.appendChild(stage)
+
+  try {
+    await documentFontsReady()
+    await waitForImages(page)
+    const w = page.offsetWidth || DOC_W
+    const h = page.offsetHeight || DOC_W
+    return { data: await toDataUrl(page, w, h, pixelRatio, jpeg), w, h }
   } finally {
     document.body.removeChild(stage)
   }
