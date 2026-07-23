@@ -202,7 +202,13 @@ export default function Docdown() {
       }
       setStatus('idle')
     } catch (err) {
-      setStatus({ error: err instanceof Error ? err.message : String(err) })
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : '書き出しに失敗しました。読み込めない画像が含まれていないかご確認ください。'
+      setStatus({ error: message })
     }
   }
 

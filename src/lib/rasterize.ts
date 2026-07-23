@@ -165,11 +165,28 @@ export async function rasterizeDocument(html: string, boxes: DocBox[], options: 
   try {
     await documentFontsReady()
     await waitForImages(page)
+    // Images that failed to load (e.g. an unresolved relative path — the dev server /
+    // Pages return index.html for it) make html-to-image reject with a bare Event.
+    // Swap them for a placeholder so the export still succeeds.
+    replaceBrokenImages(page)
     const w = page.offsetWidth || DOC_W
     const h = page.offsetHeight || DOC_W
     return { data: await toDataUrl(page, w, h, pixelRatio, jpeg), w, h }
   } finally {
     document.body.removeChild(stage)
+  }
+}
+
+/** Replace <img> elements that did not load with a light text placeholder. */
+function replaceBrokenImages(root: HTMLElement): void {
+  for (const img of Array.from(root.querySelectorAll('img'))) {
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) continue
+    const ph = document.createElement('span')
+    ph.textContent = img.getAttribute('alt') || '🖼 画像を読み込めません'
+    ph.style.cssText =
+      'display:inline-block;padding:2px 8px;margin:2px 0;color:#9aa1ac;' +
+      'border:1px dashed #cbd5e1;border-radius:4px;font-size:12px;'
+    img.replaceWith(ph)
   }
 }
 
