@@ -14,12 +14,15 @@ import {
   WidthType,
   BorderStyle,
   LevelFormat,
+  ExternalHyperlink,
 } from 'docx'
+import { toHex } from './deck'
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
 
 type MdToken = ReturnType<typeof md.parse>[number]
 type Block = Paragraph | Table
+type InlineChild = TextRun | ImageRun | ExternalHyperlink
 interface ResolvedImage {
   data: Uint8Array
   width: number
@@ -34,6 +37,8 @@ interface RunStyle {
   code?: boolean
   color?: string
   underline?: boolean
+  font?: string
+  size?: number
 }
 
 export interface DocxOptions {
@@ -46,7 +51,25 @@ export async function exportMarkdownToDocx(markdown: string, options: DocxOption
   const tokens = md.parse(markdown, {})
   const images = await resolveImages(markdown)
   const children = blocksFromTokens(tokens, { n: 0 }, images)
+  await packAndDownload(children, fileName)
+}
 
+/**
+ * Convert the edited WYSIWYG document (contentEditable HTML) to an editable .docx.
+ * This is Docdown's primary export path: the visually edited document is the source
+ * of truth, so we walk its DOM rather than re-parsing Markdown.
+ */
+export async function exportHtmlToDocx(html: string, options: DocxOptions = {}): Promise<void> {
+  const { fileName = 'document.docx' } = options
+  const root = document.createElement('div')
+  root.innerHTML = html
+  const images = await resolveImageSrcs(collectImageSrcs(root))
+  const children = blocksFromDom(root, { n: 0 }, images)
+  await packAndDownload(children, fileName)
+}
+
+/** Assemble the shared Document (numbering + default style) and trigger the download. */
+async function packAndDownload(children: Block[], fileName: string): Promise<void> {
   const doc = new Document({
     numbering: {
       config: [
@@ -154,15 +177,17 @@ function blocksFromTokens(tokens: MdToken[], oc: { n: number }, images: ImageMap
 }
 
 function paragraphInContext(
-  runs: (TextRun | ImageRun)[],
+  runs: InlineChild[],
   listStack: { ordered: boolean; instance: number }[],
   quoteDepth: number,
+  alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
 ): Paragraph {
   const ctx = listStack[listStack.length - 1]
   if (ctx) {
     const level = Math.min(4, listStack.length - 1)
     return new Paragraph({
       children: runs,
+      alignment,
       ...(ctx.ordered
         ? { numbering: { reference: 'ol', level, instance: ctx.instance } }
         : { bullet: { level } }),
@@ -171,12 +196,13 @@ function paragraphInContext(
   if (quoteDepth > 0) {
     return new Paragraph({
       children: runs,
+      alignment,
       indent: { left: 480 * quoteDepth },
       border: { left: { style: BorderStyle.SINGLE, size: 18, color: 'CBD5E1', space: 12 } },
       spacing: { before: 40, after: 40 },
     })
   }
-  return new Paragraph({ children: runs, spacing: { after: 120 } })
+  return new Paragraph({ children: runs, alignment, spacing: { after: 120 } })
 }
 
 function inlineToRuns(children: MdToken[], images: ImageMap, base: RunStyle = {}): (TextRun | ImageRun)[] {
@@ -247,7 +273,8 @@ function makeRun(text: string, s: RunStyle): TextRun {
     strike: s.strike,
     color: s.color,
     underline: s.underline ? {} : undefined,
-    font: s.code ? 'Consolas' : undefined,
+    font: s.code ? 'Consolas' : s.font,
+    size: s.size ? Math.round(s.size * 2) : undefined, // docx size is in half-points
     shading: s.code ? { fill: 'F0F0F0' } : undefined,
   })
 }
@@ -305,6 +332,262 @@ function parseTable(tokens: MdToken[], start: number, images: ImageMap): { table
   return { table, next: i + 1 }
 }
 
+// ---- Edited-document (HTML DOM) → docx ----
+
+const INLINE_TAGS = new Set([
+  'A', 'B', 'STRONG', 'I', 'EM', 'S', 'STRIKE', 'DEL', 'U', 'INS', 'CODE', 'KBD', 'SAMP', 'TT',
+  'SPAN', 'FONT', 'BR', 'IMG', 'MARK', 'SMALL', 'SUB', 'SUP', 'ABBR', 'CITE', 'Q', 'WBR', 'LABEL',
+])
+
+interface ListFrame {
+  ordered: boolean
+  instance: number
+}
+interface DomCtx {
+  oc: { n: number }
+  listStack: ListFrame[]
+  quoteDepth: number
+}
+
+/** Walk an edited-document DOM into a list of docx blocks (paragraphs / tables). */
+function blocksFromDom(root: HTMLElement, oc: { n: number }, images: ImageMap): Block[] {
+  const out: Block[] = []
+  walkBlocks(root, { oc, listStack: [], quoteDepth: 0 }, images, out)
+  return out
+}
+
+function isInlineNode(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) return true
+  if (node.nodeType !== Node.ELEMENT_NODE) return false
+  return INLINE_TAGS.has((node as Element).tagName)
+}
+
+function walkBlocks(parent: Node, ctx: DomCtx, images: ImageMap, out: Block[]): void {
+  let buffer: Node[] = []
+  const flush = () => {
+    if (buffer.some(hasInlineContent)) {
+      out.push(paragraphInContext(inlineFromNodes(buffer, images, {}), ctx.listStack, ctx.quoteDepth))
+    }
+    buffer = []
+  }
+
+  for (const child of Array.from(parent.childNodes)) {
+    if (isInlineNode(child)) {
+      buffer.push(child)
+      continue
+    }
+    flush()
+    const el = child as HTMLElement
+    const tag = el.tagName
+    if (/^H[1-6]$/.test(tag)) {
+      out.push(
+        new Paragraph({
+          heading: headingLevel(Number(tag[1])),
+          alignment: alignOf(el),
+          children: inlineFromNodes(Array.from(el.childNodes), images, {}),
+        }),
+      )
+    } else if (tag === 'P' || tag === 'DIV') {
+      out.push(paragraphInContext(inlineFromNodes(Array.from(el.childNodes), images, {}), ctx.listStack, ctx.quoteDepth, alignOf(el)))
+    } else if (tag === 'BLOCKQUOTE') {
+      walkBlocks(el, { ...ctx, quoteDepth: ctx.quoteDepth + 1 }, images, out)
+    } else if (tag === 'UL' || tag === 'OL') {
+      const ordered = tag === 'OL'
+      const frame: ListFrame = { ordered, instance: ordered ? (ctx.oc.n += 1) : 0 }
+      const inner: DomCtx = { ...ctx, listStack: [...ctx.listStack, frame] }
+      for (const li of Array.from(el.children)) {
+        if (li.tagName === 'LI') processListItem(li as HTMLElement, inner, images, out)
+      }
+    } else if (tag === 'TABLE') {
+      out.push(tableFromDom(el, images))
+    } else if (tag === 'PRE') {
+      out.push(codeBlockParagraph(el.textContent ?? ''))
+    } else if (tag === 'HR') {
+      out.push(
+        new Paragraph({
+          border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'CCCCCC', space: 1 } },
+          children: [],
+        }),
+      )
+    } else if (tag === 'FIGURE') {
+      walkBlocks(el, ctx, images, out)
+    } else {
+      // Unknown block: descend so its contents aren't lost.
+      walkBlocks(el, ctx, images, out)
+    }
+  }
+  flush()
+}
+
+/** A list item becomes one list paragraph for its inline content, plus any nested lists. */
+function processListItem(li: HTMLElement, ctx: DomCtx, images: ImageMap, out: Block[]): void {
+  const inlineNodes: Node[] = []
+  const nestedLists: HTMLElement[] = []
+  for (const node of Array.from(li.childNodes)) {
+    if (node.nodeType === Node.ELEMENT_NODE && ((node as Element).tagName === 'UL' || (node as Element).tagName === 'OL')) {
+      nestedLists.push(node as HTMLElement)
+    } else {
+      inlineNodes.push(node)
+    }
+  }
+  out.push(paragraphInContext(inlineFromNodes(inlineNodes, images, {}), ctx.listStack, ctx.quoteDepth))
+  for (const list of nestedLists) {
+    const ordered = list.tagName === 'OL'
+    const frame: ListFrame = { ordered, instance: ordered ? (ctx.oc.n += 1) : 0 }
+    const inner: DomCtx = { ...ctx, listStack: [...ctx.listStack, frame] }
+    for (const nested of Array.from(list.children)) {
+      if (nested.tagName === 'LI') processListItem(nested as HTMLElement, inner, images, out)
+    }
+  }
+}
+
+function tableFromDom(table: HTMLElement, images: ImageMap): Table {
+  const rows: TableRow[] = []
+  for (const tr of Array.from(table.querySelectorAll('tr'))) {
+    const cells: TableCell[] = []
+    for (const cell of Array.from(tr.children)) {
+      if (cell.tagName !== 'TD' && cell.tagName !== 'TH') continue
+      const header = cell.tagName === 'TH'
+      cells.push(
+        new TableCell({
+          children: [
+            new Paragraph({
+              alignment: alignOf(cell as HTMLElement),
+              children: inlineFromNodes(Array.from(cell.childNodes), images, header ? { bold: true } : {}),
+            }),
+          ],
+          shading: header ? { fill: 'EEF2F7' } : undefined,
+          margins: { top: 60, bottom: 60, left: 110, right: 110 },
+        }),
+      )
+    }
+    if (cells.length) rows.push(new TableRow({ children: cells }))
+  }
+  const border = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' }
+  return new Table({
+    rows,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
+  })
+}
+
+/** Map an element's CSS text-align to a docx alignment (undefined = default/left). */
+function alignOf(el: HTMLElement): (typeof AlignmentType)[keyof typeof AlignmentType] | undefined {
+  switch (el.style.textAlign) {
+    case 'center':
+      return AlignmentType.CENTER
+    case 'right':
+      return AlignmentType.RIGHT
+    case 'justify':
+      return AlignmentType.JUSTIFIED
+    case 'left':
+      return AlignmentType.LEFT
+    default:
+      return undefined
+  }
+}
+
+/** True if a node carries text or an image (used to skip whitespace-only buffers). */
+function hasInlineContent(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? '').trim().length > 0
+  if (node.nodeType !== Node.ELEMENT_NODE) return false
+  const el = node as HTMLElement
+  if (el.tagName === 'IMG' || el.tagName === 'BR') return true
+  return (el.textContent ?? '').trim().length > 0 || !!el.querySelector('img')
+}
+
+function inlineFromNodes(nodes: Node[], images: ImageMap, base: RunStyle): InlineChild[] {
+  const out: InlineChild[] = []
+  for (const node of nodes) walkInline(node, base, images, out)
+  return out.length ? out : [new TextRun('')]
+}
+
+function walkInline(node: Node, style: RunStyle, images: ImageMap, out: InlineChild[]): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const raw = node.textContent ?? ''
+    const text = style.code ? raw : raw.replace(/\s+/g, ' ')
+    if (text) out.push(makeRun(text, style))
+    return
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return
+  const el = node as HTMLElement
+
+  switch (el.tagName) {
+    case 'BR':
+      out.push(new TextRun({ break: 1 }))
+      return
+    case 'IMG': {
+      const src = el.getAttribute('src') ?? ''
+      const img = src && images.get(src)
+      if (img) out.push(imageRun(img))
+      else if (el.getAttribute('alt')) out.push(makeRun(el.getAttribute('alt') ?? '', style))
+      return
+    }
+    case 'A': {
+      const href = el.getAttribute('href')
+      const runs: InlineChild[] = []
+      for (const c of Array.from(el.childNodes)) walkInline(c, { ...style, color: '2563EB', underline: true }, images, runs)
+      if (href) {
+        out.push(new ExternalHyperlink({ link: href, children: runs.length ? runs : [makeRun(href, { ...style, color: '2563EB', underline: true })] }))
+      } else {
+        out.push(...runs)
+      }
+      return
+    }
+  }
+
+  const next = { ...style, ...styleFromElement(el) }
+  for (const c of Array.from(el.childNodes)) walkInline(c, next, images, out)
+}
+
+/** Derive run-style deltas from an inline element's tag and inline CSS. */
+function styleFromElement(el: HTMLElement): RunStyle {
+  const s: RunStyle = {}
+  switch (el.tagName) {
+    case 'B':
+    case 'STRONG':
+      s.bold = true
+      break
+    case 'I':
+    case 'EM':
+    case 'CITE':
+      s.italic = true
+      break
+    case 'S':
+    case 'STRIKE':
+    case 'DEL':
+      s.strike = true
+      break
+    case 'U':
+    case 'INS':
+      s.underline = true
+      break
+    case 'CODE':
+    case 'KBD':
+    case 'SAMP':
+    case 'TT':
+      s.code = true
+      break
+  }
+  const fw = el.style.fontWeight
+  if (fw === 'bold' || fw === 'bolder' || (/^\d+$/.test(fw) && Number(fw) >= 600)) s.bold = true
+  if (el.style.fontStyle === 'italic') s.italic = true
+  const deco = el.style.textDecorationLine || el.style.textDecoration
+  if (deco.includes('underline')) s.underline = true
+  if (deco.includes('line-through')) s.strike = true
+
+  const color = el.style.color || (el.tagName === 'FONT' ? el.getAttribute('color') : null)
+  const hex = color ? toHex(color) : null
+  if (hex) s.color = hex
+
+  const family = el.style.fontFamily || (el.tagName === 'FONT' ? el.getAttribute('face') : null)
+  if (family) s.font = family.split(',')[0].replace(/['"]/g, '').trim()
+
+  const fs = el.dataset?.fs
+  if (fs && !Number.isNaN(Number(fs))) s.size = Number(fs)
+  return s
+}
+
 // ---- Images ----
 
 const MAX_IMG_W = 480
@@ -332,15 +615,26 @@ async function resolveImages(markdown: string): Promise<ImageMap> {
   const srcs = new Set<string>()
   for (const m of markdown.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)>?/g)) srcs.add(m[1])
   for (const m of markdown.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) srcs.add(m[1])
+  return resolveImageSrcs(srcs)
+}
 
+/** Load a set of image srcs into PNG bytes + size (shared by the Markdown and HTML paths). */
+async function resolveImageSrcs(srcs: Iterable<string>): Promise<ImageMap> {
   const map: ImageMap = new Map()
   await Promise.all(
-    [...srcs].map(async (src) => {
+    [...new Set(srcs)].map(async (src) => {
       const r = await loadImageAsPng(src)
       if (r) map.set(src, r)
     }),
   )
   return map
+}
+
+/** Collect every <img> src from an edited-document DOM. */
+function collectImageSrcs(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll('img[src]'))
+    .map((img) => img.getAttribute('src') || '')
+    .filter(Boolean)
 }
 
 /** Load an image (data URI or CORS-friendly URL) and re-encode as PNG bytes. */

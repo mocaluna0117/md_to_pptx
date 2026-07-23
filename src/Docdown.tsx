@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import MarkdownIt from 'markdown-it'
 import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import { navigate } from './Root'
-import { exportMarkdownToDocx } from './lib/exportDocx'
+import { exportHtmlToDocx } from './lib/exportDocx'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
+import DocEditor from './components/DocEditor'
 import './App.css'
 import './Docdown.css'
 
@@ -51,6 +52,8 @@ interface Persisted {
   fileName?: string
   mdOpen?: boolean
   images?: AttachedImages
+  docHtml?: string
+  docDirty?: boolean
 }
 
 function loadPersisted(): Persisted {
@@ -86,30 +89,60 @@ export default function Docdown() {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const importModeRef = useRef<'replace' | 'append'>('replace')
 
-  const [html, setHtml] = useState('')
+  // The edited document (HTML) is the source of truth once the user edits visually;
+  // Markdown is the import starting point. `rebuildToken` remounts the editor to reseed.
+  const [docHtml, setDocHtml] = useState<string>(persisted.docHtml ?? '')
+  const [docDirty, setDocDirty] = useState<boolean>(persisted.docDirty ?? false)
+  const [rebuildToken, setRebuildToken] = useState(0)
+  const docHtmlRef = useRef(docHtml)
+  docHtmlRef.current = docHtml
+  const imagesRef = useRef(images)
+  imagesRef.current = images
   const imageNames = Object.keys(images)
 
-  // Preview renders asynchronously (math is rasterized); debounced + math-cached.
-  useEffect(() => {
-    let cancelled = false
-    const id = setTimeout(async () => {
-      const prepared = await mathToImages(resolveImagePaths(markdown, images))
-      if (!cancelled) setHtml(mdRender.render(stripFrontmatter(prepared)))
-    }, 200)
-    return () => {
-      cancelled = true
-      clearTimeout(id)
-    }
-  }, [markdown, images])
   const exporting = status === 'exporting'
   const error = typeof status === 'object' ? status.error : null
+
+  /** Render Markdown → document HTML (images + math baked in) and reseed the editor. */
+  const buildDoc = useCallback(async (src: string) => {
+    const prepared = await mathToImages(resolveImagePaths(src, imagesRef.current))
+    const rendered = mdRender.render(stripFrontmatter(prepared))
+    setDocHtml(rendered)
+    docHtmlRef.current = rendered
+    setDocDirty(false)
+    setRebuildToken((t) => t + 1)
+  }, [])
+
+  // First boot: build the document from Markdown unless a saved document exists.
+  const bootedRef = useRef(false)
+  useEffect(() => {
+    if (bootedRef.current) return
+    bootedRef.current = true
+    if (!docHtmlRef.current) void buildDoc(markdown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function handleDocChange(next: string) {
+    setDocHtml(next)
+    docHtmlRef.current = next
+    setDocDirty(true)
+  }
+
+  /** Rebuild the document from the current Markdown (warns if there are visual edits). */
+  async function rebuildFromMarkdown(): Promise<boolean> {
+    if (docHtmlRef.current && docDirty && !window.confirm('現在の Markdown から文書を作り直します。編集した内容は上書きされます。よろしいですか？')) {
+      return false
+    }
+    await buildDoc(markdown)
+    return true
+  }
 
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, images }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, images, docHtml, docDirty }))
       } catch {
-        // Images may exceed the storage quota: keep at least the text.
+        // Document HTML / images may exceed the storage quota: keep at least the text.
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen }))
         } catch {
@@ -118,13 +151,17 @@ export default function Docdown() {
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdOpen, images])
+  }, [markdown, fileName, mdOpen, images, docHtml, docDirty])
 
   async function addImageFiles(files: File[]) {
     const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
     if (imgs.length === 0) return
     const loaded = await readImageFiles(imgs)
-    setImages((cur) => ({ ...cur, ...loaded }))
+    const merged = { ...imagesRef.current, ...loaded }
+    imagesRef.current = merged
+    setImages(merged)
+    // With no visual edits yet, rebuild so relative-path images appear inline.
+    if (!docDirty) void buildDoc(markdown)
   }
 
   async function importFile(file: File, mode: 'replace' | 'append') {
@@ -133,9 +170,13 @@ export default function Docdown() {
       if (mode === 'append') {
         setMarkdown((cur) => mergeMarkdown(cur, text))
       } else {
+        if (docHtmlRef.current && docDirty && !window.confirm('読み込んだ Markdown で文書を作り直します。編集した内容は破棄されます。よろしいですか？')) {
+          return
+        }
         setMarkdown(text)
         const base = file.name.replace(/\.[^.]+$/, '')
         if (base) setFileName(base)
+        await buildDoc(text)
       }
     } catch {
       setStatus({ error: 'ファイルの読み込みに失敗しました。' })
@@ -145,7 +186,7 @@ export default function Docdown() {
   async function handleExport() {
     setStatus('exporting')
     try {
-      await exportMarkdownToDocx(await mathToImages(resolveImagePaths(markdown, images)), { fileName })
+      await exportHtmlToDocx(docHtmlRef.current, { fileName })
       setStatus('idle')
     } catch (err) {
       setStatus({ error: err instanceof Error ? err.message : String(err) })
@@ -156,8 +197,10 @@ export default function Docdown() {
     if (!window.confirm('内容を初期状態に戻します。よろしいですか？')) return
     setMarkdown(SAMPLE)
     setFileName('document')
+    imagesRef.current = {}
     setImages({})
     setStatus('idle')
+    void buildDoc(SAMPLE)
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
@@ -197,7 +240,7 @@ export default function Docdown() {
       </header>
 
       <div className="banner info">
-        左の「Markdown」タブで文章を書く／インポートし、中央のプレビューで確認して、右上から <b>Word（.docx）</b> に書き出せます。
+        左の「Markdown」で下書きし <b>「反映」</b> で文書化、あとは中央のプレビューを <b>直接編集</b>（太字・見出し・表など）して、右上から <b>Word（.docx）</b> に書き出せます。
       </div>
 
       {error && (
@@ -291,6 +334,15 @@ export default function Docdown() {
               onChange={(e) => setMarkdown(e.target.value)}
               spellCheck={false}
             />
+            <div className="md-foot">
+              <button
+                className="apply"
+                onClick={() => void rebuildFromMarkdown()}
+                title="現在の Markdown から文書を作り直す（編集内容は上書き）"
+              >
+                プレビューに反映{docDirty ? ' ●' : ''}
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -307,9 +359,7 @@ export default function Docdown() {
         </button>
 
         <main className="doc-main">
-          <div className="doc-scroll">
-            <div className="doc-page" dangerouslySetInnerHTML={{ __html: html }} />
-          </div>
+          <DocEditor key={rebuildToken} html={docHtml} images={images} onChange={handleDocChange} />
         </main>
       </div>
     </div>
