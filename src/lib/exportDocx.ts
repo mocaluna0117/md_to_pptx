@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it'
+import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import {
   Document,
   Packer,
@@ -15,7 +16,7 @@ import {
   LevelFormat,
 } from 'docx'
 
-const md = new MarkdownIt({ html: true, linkify: true, breaks: false })
+const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
 
 type MdToken = ReturnType<typeof md.parse>[number]
 type Block = Paragraph | Table

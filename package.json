@@ -15,6 +15,7 @@
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.1",
     "markdown-it": "^14.3.0",
+    "markdown-it-cjk-friendly": "^2.0.2",
     "mathjax-full": "^3.2.2",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.7",

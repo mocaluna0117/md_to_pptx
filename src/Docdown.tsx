@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import MarkdownIt from 'markdown-it'
+import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import { navigate } from './Root'
 import { exportMarkdownToDocx } from './lib/exportDocx'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
@@ -8,7 +9,7 @@ import './App.css'
 import './Docdown.css'
 
 const STORAGE_KEY = 'docdown:v1'
-const mdRender = new MarkdownIt({ html: true, linkify: true, breaks: false })
+const mdRender = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
 
 const SAMPLE = `# ドキュメントのタイトル
 
