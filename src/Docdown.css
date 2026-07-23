@@ -302,3 +302,89 @@
 .doc-editable:focus {
   outline: none;
 }
+
+/* ---- Floating text boxes ---- */
+.doc-page-wrap {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.doc-page-wrap > .doc-page {
+  max-width: none;
+  margin: 0;
+}
+
+/* Overlay covers the page; only boxes capture pointer events. */
+.doc-box-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.doc-box {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  border: 1px dashed #94a3b8;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  cursor: move;
+  overflow: hidden;
+}
+.doc-box.selected {
+  border: 1px solid #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+  background: #ffffff;
+}
+.doc-box-body {
+  width: 100%;
+  height: 100%;
+  padding: 8px 10px;
+  outline: none;
+  color: #1f2328;
+  font-family: 'Calibri', 'Segoe UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  overflow: auto;
+  cursor: text;
+}
+.doc-box:not(.selected) .doc-box-body {
+  cursor: move;
+}
+
+.doc-box-del {
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: #e11d48;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.doc-box-resize {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #2563eb;
+  border: 2px solid #fff;
+  cursor: nwse-resize;
+}
+
+.det-box-add {
+  width: auto;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}

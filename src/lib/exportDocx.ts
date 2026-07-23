@@ -15,8 +15,10 @@ import {
   BorderStyle,
   LevelFormat,
   ExternalHyperlink,
+  Textbox,
 } from 'docx'
 import { toHex } from './deck'
+import type { DocBox } from './docBox'
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
 
@@ -58,14 +60,64 @@ export async function exportMarkdownToDocx(markdown: string, options: DocxOption
  * Convert the edited WYSIWYG document (contentEditable HTML) to an editable .docx.
  * This is Docdown's primary export path: the visually edited document is the source
  * of truth, so we walk its DOM rather than re-parsing Markdown.
+ *
+ * `boxes` are free-floating text boxes layered over the document; each becomes a
+ * Word text box anchored to the page at an absolute position.
  */
-export async function exportHtmlToDocx(html: string, options: DocxOptions = {}): Promise<void> {
+export async function exportHtmlToDocx(html: string, boxes: DocBox[] = [], options: DocxOptions = {}): Promise<void> {
   const { fileName = 'document.docx' } = options
   const root = document.createElement('div')
   root.innerHTML = html
-  const images = await resolveImageSrcs(collectImageSrcs(root))
+  const boxRoots = boxes.map((b) => {
+    const d = document.createElement('div')
+    d.innerHTML = b.html
+    return d
+  })
+  const srcs = [...collectImageSrcs(root), ...boxRoots.flatMap(collectImageSrcs)]
+  const images = await resolveImageSrcs(srcs)
   const children = blocksFromDom(root, { n: 0 }, images)
-  await packAndDownload(children, fileName)
+  // Text boxes are prepended so their anchor paragraph sits on the first page,
+  // letting page-relative absolute positions place them at the intended coords.
+  const boxChildren = boxes.map((b, i) => textboxFromBox(b, boxRoots[i], images))
+  await packAndDownload([...boxChildren, ...children], fileName)
+}
+
+const PX_TO_PT = 0.75 // 96dpi CSS pixels → points
+
+function textboxFromBox(box: DocBox, root: HTMLElement, images: ImageMap): Textbox {
+  return new Textbox({
+    style: {
+      position: 'absolute',
+      positionHorizontalRelative: 'page',
+      positionVerticalRelative: 'page',
+      left: `${Math.round(box.x * PX_TO_PT)}pt`,
+      top: `${Math.round(box.y * PX_TO_PT)}pt`,
+      width: `${Math.round(box.w * PX_TO_PT)}pt`,
+      height: `${Math.round(box.h * PX_TO_PT)}pt`,
+    },
+    children: runsFromBoxDom(root, images),
+  })
+}
+
+/** Flatten a box's edited HTML into one paragraph's runs (block boundaries → line breaks). */
+function runsFromBoxDom(root: HTMLElement, images: ImageMap): InlineChild[] {
+  const nodes = Array.from(root.childNodes)
+  const hasBlocks = nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && !isInlineNode(n))
+  if (!hasBlocks) return inlineFromNodes(nodes, images, {})
+
+  const out: InlineChild[] = []
+  let first = true
+  for (const node of nodes) {
+    if (node.nodeType === Node.ELEMENT_NODE && !isInlineNode(node)) {
+      if (!first) out.push(new TextRun({ break: 1 }))
+      for (const c of Array.from(node.childNodes)) walkInline(c, {}, images, out)
+      first = false
+    } else if (hasInlineContent(node)) {
+      walkInline(node, {}, images, out)
+      first = false
+    }
+  }
+  return out.length ? out : [new TextRun('')]
 }
 
 /** Assemble the shared Document (numbering + default style) and trigger the download. */

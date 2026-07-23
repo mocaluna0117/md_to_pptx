@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AttachedImages } from '../lib/imageAttach'
+import { newDocBox, type DocBox } from '../lib/docBox'
 
 interface Props {
   /** Initial document HTML. Seeded into the editable area once on mount. */
   html: string
   /** Attached images (basename → data URI) offered in the insert-image menu. */
   images: AttachedImages
-  /** Called (debounced) with the edited HTML whenever the document changes. */
+  /** Called (debounced) with the edited HTML whenever the flowing document changes. */
   onChange: (html: string) => void
+  /** Free-floating text boxes layered over the document. */
+  boxes: DocBox[]
+  onBoxesChange: (boxes: DocBox[]) => void
 }
 
 const DEFAULT_PT = 11
@@ -37,26 +41,33 @@ const FONT_OPTIONS: { value: string; label: string }[] = [
 const COLORS = ['111111', 'E11D48', '2563EB', '059669', 'D97706', '7C3AED', '6B7280', 'FFFFFF']
 
 /**
- * WYSIWYG document editor: a single contentEditable area plus a formatting toolbar.
- * The edited HTML is the source of truth (Docdown exports it directly to .docx).
- * Content is seeded once on mount — the parent remounts (via `key`) to reseed on rebuild —
- * so React never overwrites the live DOM and the caret is preserved while typing.
+ * WYSIWYG document editor: a flowing contentEditable page plus a layer of free-floating
+ * text boxes, driven by one shared formatting toolbar. The edited HTML (flow) and the box
+ * list are the source of truth (Docdown exports them directly to .docx).
+ *
+ * Flow content is seeded once on mount — the parent remounts (via `key`) to reseed on
+ * rebuild — so React never overwrites the live DOM and the caret is preserved while typing.
+ * The toolbar operates on whichever editable surface (the page or a box) last held the
+ * selection, tracked via `activeEditableRef`.
  */
-export default function DocEditor({ html, images, onChange }: Props) {
+export default function DocEditor({ html, images, onChange, boxes, onBoxesChange }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
   const savedRange = useRef<Range | null>(null)
+  const activeEditableRef = useRef<HTMLElement | null>(null)
   const emitTimer = useRef<number | null>(null)
+  const boxesRef = useRef(boxes)
+  boxesRef.current = boxes
+  const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number } | null>(null)
+
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
-  const [active, setActive] = useState<{ bold: boolean; italic: boolean; strike: boolean; block: string; inTable: boolean }>({
-    bold: false,
-    italic: false,
-    strike: false,
-    block: 'p',
-    inTable: false,
-  })
+  const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
+  const [editingBoxId, setEditingBoxId] = useState<string | null>(null)
+  const [active, setActive] = useState({ bold: false, italic: false, strike: false, block: 'p' })
   const imageNames = Object.keys(images)
 
-  // Seed the editable content once on mount.
+  // Seed the flowing content once on mount.
   useEffect(() => {
     const el = editorRef.current
     if (!el) return
@@ -70,34 +81,44 @@ export default function DocEditor({ html, images, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Track the live selection so toolbar buttons can operate on it after focus moves to them.
+  // Track the live selection (page or box) so toolbar buttons operate on the right surface.
   useEffect(() => {
     const onSelChange = () => {
-      const el = editorRef.current
       const sel = window.getSelection()
-      if (!el || !sel || sel.rangeCount === 0) return
+      if (!sel || sel.rangeCount === 0) return
       const range = sel.getRangeAt(0)
-      if (el.contains(range.commonAncestorContainer)) {
-        savedRange.current = range.cloneRange()
-        refreshActive()
-      }
+      const surface = editableAncestor(range.commonAncestorContainer)
+      if (!surface) return
+      savedRange.current = range.cloneRange()
+      activeEditableRef.current = surface
+      refreshActive(surface)
     }
     document.addEventListener('selectionchange', onSelChange)
     return () => document.removeEventListener('selectionchange', onSelChange)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function refreshActive() {
-    const el = editorRef.current
+  /** Nearest ancestor that is an editable surface (the page or a box body). */
+  function editableAncestor(node: Node | null): HTMLElement | null {
+    let n: Node | null = node
+    while (n) {
+      if (n.nodeType === Node.ELEMENT_NODE) {
+        const el = n as HTMLElement
+        if (el.classList?.contains('doc-editable') || el.classList?.contains('doc-box-body')) return el
+      }
+      n = n.parentNode
+    }
+    return null
+  }
+
+  function refreshActive(surface: HTMLElement) {
     const sel = window.getSelection()
-    if (!el || !sel || sel.rangeCount === 0) return
+    if (!sel || sel.rangeCount === 0) return
     let node: Node | null = sel.getRangeAt(0).startContainer
     let block = 'p'
-    let inTable = false
-    while (node && node !== el) {
+    while (node && node !== surface) {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const tag = (node as HTMLElement).tagName
-        if ((tag === 'TD' || tag === 'TH')) inTable = true
         if (block === 'p' && /^(H[1-6]|BLOCKQUOTE|PRE|P)$/.test(tag)) block = tag.toLowerCase()
       }
       node = node.parentNode
@@ -112,23 +133,31 @@ export default function DocEditor({ html, images, onChange }: Props) {
     } catch {
       /* ignore */
     }
-    setActive({ bold, italic, strike, block, inTable })
+    setActive({ bold, italic, strike, block })
   }
 
-  function emitSoon() {
+  /** Push the current content of whichever surface was last active back to the parent. */
+  function syncActive() {
+    const surface = activeEditableRef.current
+    if (!surface) return
+    if (surface.classList.contains('doc-editable')) {
+      onChange(surface.innerHTML)
+    } else {
+      const id = surface.dataset.boxId
+      if (id) patchBox(id, { html: surface.innerHTML })
+    }
+  }
+
+  function emitFlowSoon() {
     if (emitTimer.current) window.clearTimeout(emitTimer.current)
     emitTimer.current = window.setTimeout(() => {
       if (editorRef.current) onChange(editorRef.current.innerHTML)
     }, 250)
   }
-  function emitNow() {
-    if (emitTimer.current) window.clearTimeout(emitTimer.current)
-    if (editorRef.current) onChange(editorRef.current.innerHTML)
-  }
 
-  /** Refocus the editor and restore the last selection before running a command. */
+  /** Refocus the last active surface and restore its selection before running a command. */
   function restore() {
-    const el = editorRef.current
+    const el = activeEditableRef.current ?? editorRef.current
     if (!el) return
     el.focus()
     const sel = window.getSelection()
@@ -146,17 +175,12 @@ export default function DocEditor({ html, images, onChange }: Props) {
     } catch {
       /* ignore */
     }
-    refreshActive()
-    emitNow()
+    if (activeEditableRef.current) refreshActive(activeEditableRef.current)
+    syncActive()
   }
 
   function setBlock(tag: string) {
-    // formatBlock wants an angle-bracketed tag name on most engines.
     exec('formatBlock', `<${tag}>`)
-  }
-
-  function insertHtml(htmlStr: string) {
-    exec('insertHTML', htmlStr)
   }
 
   function addLink() {
@@ -172,83 +196,17 @@ export default function DocEditor({ html, images, onChange }: Props) {
   }
 
   function insertTable() {
-    const rows = 2
     const cols = 2
     const head = `<tr>${Array.from({ length: cols }, (_, c) => `<th>見出し${c + 1}</th>`).join('')}</tr>`
-    const body = Array.from({ length: rows }, () => `<tr>${Array.from({ length: cols }, () => '<td>&nbsp;</td>').join('')}</tr>`).join('')
-    insertHtml(`<table><thead>${head}</thead><tbody>${body}</tbody></table><p><br></p>`)
+    const body = `<tr>${Array.from({ length: cols }, () => '<td>&nbsp;</td>').join('')}</tr>`
+    exec('insertHTML', `<table><thead>${head}</thead><tbody>${body}</tbody></table><p><br></p>`)
   }
 
-  // ---- Table structural edits (operate on the cell containing the caret) ----
+  // ---- Font size (points, carried on data-fs so the .docx export can read it) ----
 
-  function currentCell(): HTMLTableCellElement | null {
-    let node: Node | null = savedRange.current?.startContainer ?? null
-    while (node && node !== editorRef.current) {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const tag = (node as HTMLElement).tagName
-        if (tag === 'TD' || tag === 'TH') return node as HTMLTableCellElement
-      }
-      node = node.parentNode
-    }
-    return null
-  }
-
-  function withCell(fn: (cell: HTMLTableCellElement, row: HTMLTableRowElement, table: HTMLTableElement) => void) {
-    const cell = currentCell()
-    const row = cell?.parentElement as HTMLTableRowElement | undefined
-    const table = cell?.closest('table') as HTMLTableElement | null
-    if (!cell || !row || !table) return
-    fn(cell, row, table)
-    refreshActive()
-    emitNow()
-  }
-
-  function addRow() {
-    withCell((_cell, row) => {
-      const cols = row.children.length
-      const tr = document.createElement('tr')
-      for (let c = 0; c < cols; c++) {
-        const td = document.createElement('td')
-        td.innerHTML = '&nbsp;'
-        tr.appendChild(td)
-      }
-      row.after(tr)
-    })
-  }
-  function delRow() {
-    withCell((_cell, row, table) => {
-      if (table.querySelectorAll('tr').length > 1) row.remove()
-    })
-  }
-  function addCol() {
-    withCell((cell, _row, table) => {
-      const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
-      for (const tr of Array.from(table.querySelectorAll('tr'))) {
-        const ref = tr.children[index]
-        const isHead = ref && ref.tagName === 'TH'
-        const nc = document.createElement(isHead ? 'th' : 'td')
-        nc.innerHTML = '&nbsp;'
-        if (ref) ref.after(nc)
-        else tr.appendChild(nc)
-      }
-    })
-  }
-  function delCol() {
-    withCell((cell, _row, table) => {
-      const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
-      const firstRowCells = table.querySelector('tr')?.children.length ?? 0
-      if (firstRowCells <= 1) return
-      for (const tr of Array.from(table.querySelectorAll('tr'))) {
-        tr.children[index]?.remove()
-      }
-    })
-  }
-
-  // ---- Font size (point-based, carried on data-fs so the .docx export can read it) ----
-
-  function effectiveFs(node: Node | null): number {
+  function effectiveFs(node: Node | null, root: HTMLElement | null): number {
     let n: Node | null = node
-    while (n && n !== editorRef.current) {
+    while (n && n !== root) {
       if (n.nodeType === Node.ELEMENT_NODE) {
         const fs = (n as HTMLElement).dataset?.fs
         if (fs) return Number(fs)
@@ -263,11 +221,10 @@ export default function DocEditor({ html, images, onChange }: Props) {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return
     const range = sel.getRangeAt(0)
-    const cur = effectiveFs(range.startContainer)
-    const nextPt = Math.max(MIN_PT, Math.min(MAX_PT, cur + delta))
     if (range.collapsed) return
+    const cur = effectiveFs(range.startContainer, activeEditableRef.current)
+    const nextPt = Math.max(MIN_PT, Math.min(MAX_PT, cur + delta))
     const frag = range.extractContents()
-    // Preserve relative sizing on already-sized descendants.
     frag.querySelectorAll?.('[data-fs]').forEach((elm) => {
       const el = elm as HTMLElement
       const bumped = Math.max(MIN_PT, Math.min(MAX_PT, Number(el.dataset.fs) + delta))
@@ -279,13 +236,56 @@ export default function DocEditor({ html, images, onChange }: Props) {
     span.style.fontSize = `${nextPt}pt`
     span.appendChild(frag)
     range.insertNode(span)
-    // Reselect the wrapped content.
     const newRange = document.createRange()
     newRange.selectNodeContents(span)
     sel.removeAllRanges()
     sel.addRange(newRange)
     savedRange.current = newRange.cloneRange()
-    emitNow()
+    syncActive()
+  }
+
+  // ---- Text boxes ----
+
+  function patchBox(id: string, patch: Partial<DocBox>) {
+    onBoxesChange(boxesRef.current.map((b) => (b.id === id ? { ...b, ...patch } : b)))
+  }
+
+  function addBox() {
+    const box = newDocBox()
+    onBoxesChange([...boxesRef.current, box])
+    setSelectedBoxId(box.id)
+    setEditingBoxId(null)
+  }
+
+  function deleteBox(id: string) {
+    onBoxesChange(boxesRef.current.filter((b) => b.id !== id))
+    if (selectedBoxId === id) setSelectedBoxId(null)
+    if (editingBoxId === id) setEditingBoxId(null)
+  }
+
+  function startBoxGesture(e: React.PointerEvent, box: DocBox, mode: 'move' | 'resize') {
+    e.preventDefault()
+    e.stopPropagation()
+    setSelectedBoxId(box.id)
+    dragRef.current = { mode, id: box.id, sx: e.clientX, sy: e.clientY, ox: box.x, oy: box.y, ow: box.w, oh: box.h }
+    window.addEventListener('pointermove', onGestureMove)
+    window.addEventListener('pointerup', onGestureUp)
+  }
+  function onGestureMove(e: PointerEvent) {
+    const d = dragRef.current
+    if (!d) return
+    const dx = e.clientX - d.sx
+    const dy = e.clientY - d.sy
+    if (d.mode === 'move') {
+      patchBox(d.id, { x: Math.max(0, Math.round(d.ox + dx)), y: Math.max(0, Math.round(d.oy + dy)) })
+    } else {
+      patchBox(d.id, { w: Math.max(60, Math.round(d.ow + dx)), h: Math.max(36, Math.round(d.oh + dy)) })
+    }
+  }
+  function onGestureUp() {
+    dragRef.current = null
+    window.removeEventListener('pointermove', onGestureMove)
+    window.removeEventListener('pointerup', onGestureUp)
   }
 
   const btn = (label: string, title: string, onClick: () => void, isActive = false, extraClass = '') => (
@@ -402,28 +402,149 @@ export default function DocEditor({ html, images, onChange }: Props) {
 
         <div className="det-group">
           {btn('▦', '表を挿入', insertTable)}
-          {active.inTable && (
-            <>
-              {btn('＋行', '行を追加', addRow)}
-              {btn('−行', '行を削除', delRow)}
-              {btn('＋列', '列を追加', addCol)}
-              {btn('−列', '列を削除', delCol)}
-            </>
-          )}
+          {btn('＋□ ボックス', 'テキストボックスを追加', addBox, false, 'det-box-add')}
         </div>
       </div>
 
       <div className="doc-scroll">
+        <div className="doc-page-wrap" ref={wrapRef}>
+          <div
+            ref={editorRef}
+            className="doc-page doc-editable"
+            contentEditable
+            suppressContentEditableWarning
+            spellCheck={false}
+            onInput={emitFlowSoon}
+            onBlur={() => {
+              if (editorRef.current) onChange(editorRef.current.innerHTML)
+            }}
+            onMouseDown={() => setSelectedBoxId(null)}
+          />
+          <div className="doc-box-layer">
+            {boxes.map((box) => (
+              <DocBoxView
+                key={box.id}
+                box={box}
+                selected={selectedBoxId === box.id}
+                editing={editingBoxId === box.id}
+                onSelect={() => setSelectedBoxId(box.id)}
+                onStartMove={(e) => startBoxGesture(e, box, 'move')}
+                onStartResize={(e) => startBoxGesture(e, box, 'resize')}
+                onEdit={() => {
+                  setSelectedBoxId(box.id)
+                  setEditingBoxId(box.id)
+                }}
+                onStopEdit={(nextHtml) => {
+                  patchBox(box.id, { html: nextHtml })
+                  setEditingBoxId(null)
+                }}
+                onChangeHtml={(nextHtml) => patchBox(box.id, { html: nextHtml })}
+                onDelete={() => deleteBox(box.id)}
+                registerBody={(el) => {
+                  if (el) boxBodyRefs.current.set(box.id, el)
+                  else boxBodyRefs.current.delete(box.id)
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface BoxProps {
+  box: DocBox
+  selected: boolean
+  editing: boolean
+  onSelect: () => void
+  onStartMove: (e: React.PointerEvent) => void
+  onStartResize: (e: React.PointerEvent) => void
+  onEdit: () => void
+  onStopEdit: (html: string) => void
+  onChangeHtml: (html: string) => void
+  onDelete: () => void
+  registerBody: (el: HTMLDivElement | null) => void
+}
+
+/** One floating text box. Static (draggable) until double-clicked into edit mode. */
+function DocBoxView({ box, selected, editing, onSelect, onStartMove, onStartResize, onEdit, onStopEdit, onChangeHtml, onDelete, registerBody }: BoxProps) {
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const emit = useRef<number | null>(null)
+
+  // Seed the editable body once when entering edit mode; place the caret at the end.
+  useEffect(() => {
+    if (!editing) return
+    const el = bodyRef.current
+    if (!el) return
+    el.innerHTML = box.html
+    registerBody(el)
+    el.focus()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    return () => registerBody(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing])
+
+  const style: React.CSSProperties = { left: box.x, top: box.y, width: box.w, height: box.h }
+
+  return (
+    <div
+      className={`doc-box${selected ? ' selected' : ''}`}
+      style={style}
+      onPointerDown={(e) => {
+        if (editing) return
+        // Left-button drag moves the box; also selects it.
+        if (e.button === 0) onStartMove(e)
+      }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelect()
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onEdit()
+      }}
+    >
+      {editing ? (
         <div
-          ref={editorRef}
-          className="doc-page doc-editable"
+          ref={bodyRef}
+          className="doc-box-body"
+          data-box-id={box.id}
           contentEditable
           suppressContentEditableWarning
           spellCheck={false}
-          onInput={emitSoon}
-          onBlur={emitNow}
+          onInput={() => {
+            if (emit.current) window.clearTimeout(emit.current)
+            emit.current = window.setTimeout(() => {
+              if (bodyRef.current) onChangeHtml(bodyRef.current.innerHTML)
+            }, 200)
+          }}
+          onBlur={() => {
+            if (bodyRef.current) onStopEdit(bodyRef.current.innerHTML)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              ;(e.target as HTMLElement).blur()
+            }
+          }}
         />
-      </div>
+      ) : (
+        <div className="doc-box-body" dangerouslySetInnerHTML={{ __html: box.html || '<span style="opacity:.5">ダブルクリックで編集</span>' }} />
+      )}
+      {selected && (
+        <>
+          <button className="doc-box-del" title="ボックスを削除" aria-label="ボックスを削除" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.stopPropagation(); onDelete() }}>
+            ×
+          </button>
+          <span className="doc-box-resize" onPointerDown={onStartResize} title="サイズ変更" />
+        </>
+      )}
     </div>
   )
 }

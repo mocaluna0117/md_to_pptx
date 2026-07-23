@@ -5,6 +5,7 @@ import { navigate } from './Root'
 import { exportHtmlToDocx } from './lib/exportDocx'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
+import type { DocBox } from './lib/docBox'
 import DocEditor from './components/DocEditor'
 import './App.css'
 import './Docdown.css'
@@ -54,6 +55,7 @@ interface Persisted {
   images?: AttachedImages
   docHtml?: string
   docDirty?: boolean
+  boxes?: DocBox[]
 }
 
 function loadPersisted(): Persisted {
@@ -93,9 +95,12 @@ export default function Docdown() {
   // Markdown is the import starting point. `rebuildToken` remounts the editor to reseed.
   const [docHtml, setDocHtml] = useState<string>(persisted.docHtml ?? '')
   const [docDirty, setDocDirty] = useState<boolean>(persisted.docDirty ?? false)
+  const [boxes, setBoxes] = useState<DocBox[]>(persisted.boxes ?? [])
   const [rebuildToken, setRebuildToken] = useState(0)
   const docHtmlRef = useRef(docHtml)
   docHtmlRef.current = docHtml
+  const boxesRef = useRef(boxes)
+  boxesRef.current = boxes
   const imagesRef = useRef(images)
   imagesRef.current = images
   const imageNames = Object.keys(images)
@@ -140,9 +145,9 @@ export default function Docdown() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, images, docHtml, docDirty }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, images, docHtml, docDirty, boxes }))
       } catch {
-        // Document HTML / images may exceed the storage quota: keep at least the text.
+        // Document HTML / images / boxes may exceed the storage quota: keep at least the text.
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen }))
         } catch {
@@ -151,7 +156,7 @@ export default function Docdown() {
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdOpen, images, docHtml, docDirty])
+  }, [markdown, fileName, mdOpen, images, docHtml, docDirty, boxes])
 
   async function addImageFiles(files: File[]) {
     const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
@@ -186,7 +191,7 @@ export default function Docdown() {
   async function handleExport() {
     setStatus('exporting')
     try {
-      await exportHtmlToDocx(docHtmlRef.current, { fileName })
+      await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName })
       setStatus('idle')
     } catch (err) {
       setStatus({ error: err instanceof Error ? err.message : String(err) })
@@ -199,6 +204,8 @@ export default function Docdown() {
     setFileName('document')
     imagesRef.current = {}
     setImages({})
+    boxesRef.current = []
+    setBoxes([])
     setStatus('idle')
     void buildDoc(SAMPLE)
     try {
@@ -240,7 +247,7 @@ export default function Docdown() {
       </header>
 
       <div className="banner info">
-        左の「Markdown」で下書きし <b>「反映」</b> で文書化、あとは中央のプレビューを <b>直接編集</b>（太字・見出し・表など）して、右上から <b>Word（.docx）</b> に書き出せます。
+        左の「Markdown」で下書きし <b>「反映」</b> で文書化、中央のプレビューを <b>直接編集</b>（太字・見出し・表）。<b>＋□ ボックス</b> で自由配置のテキストボックスも追加でき（ドラッグ移動・ダブルクリックで編集）、右上から <b>Word（.docx）</b> に書き出せます。
       </div>
 
       {error && (
@@ -359,7 +366,14 @@ export default function Docdown() {
         </button>
 
         <main className="doc-main">
-          <DocEditor key={rebuildToken} html={docHtml} images={images} onChange={handleDocChange} />
+          <DocEditor
+            key={rebuildToken}
+            html={docHtml}
+            images={images}
+            onChange={handleDocChange}
+            boxes={boxes}
+            onBoxesChange={setBoxes}
+          />
         </main>
       </div>
     </div>
