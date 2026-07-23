@@ -388,3 +388,77 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* ---- Print → PDF (vector, high quality) ---- */
+@media print {
+  /* Hide all app chrome; print only the document page. */
+  .toolbar,
+  .banner,
+  .md-drawer,
+  .md-handle,
+  .doc-editor-toolbar {
+    display: none !important;
+  }
+
+  /* Let the whole document flow onto the printed pages from the top-left. */
+  html,
+  body,
+  #root,
+  .app,
+  .workspace,
+  .doc-main,
+  .doc-editor,
+  .doc-scroll {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  /* Keep relative so the absolute box layer anchors to the page. */
+  .doc-page-wrap {
+    position: relative !important;
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .doc-page {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* The box layer must overlay the flowing page even in print. */
+  .doc-box-layer {
+    position: absolute !important;
+    inset: 0 !important;
+  }
+  /* Boxes: keep the text, drop the editor chrome. */
+  .doc-box {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .doc-box-del,
+  .doc-box-resize {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 16mm;
+  }
+}

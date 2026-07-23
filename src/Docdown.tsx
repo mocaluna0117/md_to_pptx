@@ -3,7 +3,6 @@ import MarkdownIt from 'markdown-it'
 import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import { navigate } from './Root'
 import { exportHtmlToDocx } from './lib/exportDocx'
-import { exportHtmlToPdf } from './lib/exportPdf'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
 import type { DocBox } from './lib/docBox'
@@ -191,15 +190,11 @@ export default function Docdown() {
     }
   }
 
-  async function handleExport(target: 'docx' | 'pdf') {
+  async function handleExportDocx() {
     setExportMenuOpen(false)
     setStatus('exporting')
     try {
-      if (target === 'pdf') {
-        await exportHtmlToPdf(docHtmlRef.current, boxesRef.current, { fileName })
-      } else {
-        await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName })
-      }
+      await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName })
       setStatus('idle')
     } catch (err) {
       const message =
@@ -210,6 +205,23 @@ export default function Docdown() {
             : '書き出しに失敗しました。読み込めない画像が含まれていないかご確認ください。'
       setStatus({ error: message })
     }
+  }
+
+  /**
+   * PDF export via the browser's print-to-PDF: text stays vector (crisp at any zoom,
+   * selectable, correct Japanese), which a rasterized PDF can't match. The @media print
+   * stylesheet isolates the document page (+ boxes). The title becomes the default file name.
+   */
+  function handlePrintPdf() {
+    setExportMenuOpen(false)
+    const prev = document.title
+    document.title = fileName?.trim() || 'document'
+    const restore = () => {
+      document.title = prev
+      window.removeEventListener('afterprint', restore)
+    }
+    window.addEventListener('afterprint', restore)
+    window.print()
   }
 
   // Close the export dropdown on an outside click.
@@ -276,13 +288,13 @@ export default function Docdown() {
             </button>
             {exportMenuOpen && !exporting && (
               <div className="export-menu" role="menu">
-                <button role="menuitem" onClick={() => handleExport('docx')}>
+                <button role="menuitem" onClick={handleExportDocx}>
                   <span className="mi-title">Word（.docx）</span>
                   <span className="mi-desc">編集できる Word 文書</span>
                 </button>
-                <button role="menuitem" onClick={() => handleExport('pdf')}>
-                  <span className="mi-title">PDF（.pdf）</span>
-                  <span className="mi-desc">レイアウトそのままの PDF</span>
+                <button role="menuitem" onClick={handlePrintPdf}>
+                  <span className="mi-title">PDF（印刷から保存）</span>
+                  <span className="mi-desc">高画質・文字を選択できる PDF</span>
                 </button>
               </div>
             )}

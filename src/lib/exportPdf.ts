@@ -1,7 +1,6 @@
 import { jsPDF } from 'jspdf'
-import { rasterizeDeck, rasterizeMarkdown, rasterizeDocument, type PngSlide } from './rasterize'
+import { rasterizeDeck, rasterizeMarkdown, type PngSlide } from './rasterize'
 import type { Deck } from './deck'
-import type { DocBox } from './docBox'
 
 const PAGE_WIDTH_IN = 10
 
@@ -29,38 +28,6 @@ export async function exportDeckToPdf(deck: Deck, options: ExportOptions = {}): 
     throw new Error('スライドがありません。')
   }
   slidesToPdf(images, fileName)
-}
-
-/**
- * Rasterize the Docdown document (flowing HTML + floating boxes) into a multi-page
- * A4 PDF. The tall sheet image is placed once per page at a shifting negative offset
- * so each page shows the next slice (image-based, like the deck/slide PDFs).
- */
-export async function exportHtmlToPdf(html: string, boxes: DocBox[] = [], options: ExportOptions = {}): Promise<void> {
-  // A document is mostly sharp-edged text on white, so render at a high pixel ratio
-  // and encode as lossless PNG — JPEG compression blurs/rings text edges.
-  const { fileName = 'document.pdf', pixelRatio = 3 } = options
-  const img = await rasterizeDocument(html, boxes, { pixelRatio, jpeg: false })
-
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-  const pageW = pdf.internal.pageSize.getWidth()
-  const pageH = pdf.internal.pageSize.getHeight()
-  const imgH = pageW * (img.h / img.w)
-
-  // A shared alias makes jsPDF embed the (identical) page image only once, even when
-  // it is placed on several pages, keeping multi-page PDFs small.
-  const alias = 'docpage'
-  let position = 0
-  let heightLeft = imgH
-  pdf.addImage(img.data, 'PNG', 0, position, pageW, imgH, alias, 'FAST')
-  heightLeft -= pageH
-  while (heightLeft > 0) {
-    position -= pageH
-    pdf.addPage()
-    pdf.addImage(img.data, 'PNG', 0, position, pageW, imgH, alias, 'FAST')
-    heightLeft -= pageH
-  }
-  pdf.save(ensureExt(fileName))
 }
 
 function slidesToPdf(images: PngSlide[], fileName: string): void {
