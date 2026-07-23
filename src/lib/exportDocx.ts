@@ -4,6 +4,7 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  ImageRun,
   HeadingLevel,
   AlignmentType,
   Table,
@@ -14,10 +15,16 @@ import {
   LevelFormat,
 } from 'docx'
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
+const md = new MarkdownIt({ html: true, linkify: true, breaks: false })
 
 type MdToken = ReturnType<typeof md.parse>[number]
 type Block = Paragraph | Table
+interface ResolvedImage {
+  data: Uint8Array
+  width: number
+  height: number
+}
+type ImageMap = Map<string, ResolvedImage>
 
 interface RunStyle {
   bold?: boolean
@@ -36,8 +43,8 @@ export interface DocxOptions {
 export async function exportMarkdownToDocx(markdown: string, options: DocxOptions = {}): Promise<void> {
   const { fileName = 'document.docx' } = options
   const tokens = md.parse(markdown, {})
-  const orderedCounter = { n: 0 }
-  const children = blocksFromTokens(tokens, orderedCounter)
+  const images = await resolveImages(markdown)
+  const children = blocksFromTokens(tokens, { n: 0 }, images)
 
   const doc = new Document({
     numbering: {
@@ -67,7 +74,7 @@ export async function exportMarkdownToDocx(markdown: string, options: DocxOption
 }
 
 /** Walk the flat token stream into a list of docx blocks (paragraphs / tables). */
-function blocksFromTokens(tokens: MdToken[], oc: { n: number }): Block[] {
+function blocksFromTokens(tokens: MdToken[], oc: { n: number }, images: ImageMap): Block[] {
   const out: Block[] = []
   const listStack: { ordered: boolean; instance: number }[] = []
   let quoteDepth = 0
@@ -79,13 +86,13 @@ function blocksFromTokens(tokens: MdToken[], oc: { n: number }): Block[] {
       case 'heading_open': {
         const level = Number(t.tag.slice(1)) || 1
         const inline = tokens[i + 1]
-        out.push(new Paragraph({ heading: headingLevel(level), children: inlineToRuns(inline?.children ?? []) }))
+        out.push(new Paragraph({ heading: headingLevel(level), children: inlineToRuns(inline?.children ?? [], images) }))
         i += 3
         break
       }
       case 'paragraph_open': {
         const inline = tokens[i + 1]
-        const runs = inlineToRuns(inline?.children ?? [], quoteDepth > 0 ? { italic: true } : {})
+        const runs = inlineToRuns(inline?.children ?? [], images, quoteDepth > 0 ? { italic: true } : {})
         out.push(paragraphInContext(runs, listStack, quoteDepth))
         i += 3
         break
@@ -118,9 +125,15 @@ function blocksFromTokens(tokens: MdToken[], oc: { n: number }): Block[] {
         break
       }
       case 'table_open': {
-        const { table, next } = parseTable(tokens, i)
+        const { table, next } = parseTable(tokens, i, images)
         out.push(table)
         i = next
+        break
+      }
+      case 'html_block': {
+        const runs = imgRunsFromHtml(t.content, images)
+        if (runs.length) out.push(new Paragraph({ children: runs }))
+        i += 1
         break
       }
       case 'hr':
@@ -140,7 +153,7 @@ function blocksFromTokens(tokens: MdToken[], oc: { n: number }): Block[] {
 }
 
 function paragraphInContext(
-  runs: TextRun[],
+  runs: (TextRun | ImageRun)[],
   listStack: { ordered: boolean; instance: number }[],
   quoteDepth: number,
 ): Paragraph {
@@ -165,8 +178,8 @@ function paragraphInContext(
   return new Paragraph({ children: runs, spacing: { after: 120 } })
 }
 
-function inlineToRuns(children: MdToken[], base: RunStyle = {}): TextRun[] {
-  const runs: TextRun[] = []
+function inlineToRuns(children: MdToken[], images: ImageMap, base: RunStyle = {}): (TextRun | ImageRun)[] {
+  const runs: (TextRun | ImageRun)[] = []
   const stack: RunStyle[] = []
   let style: RunStyle = { ...base }
 
@@ -206,9 +219,18 @@ function inlineToRuns(children: MdToken[], base: RunStyle = {}): TextRun[] {
       case 'hardbreak':
         runs.push(new TextRun({ break: 1 }))
         break
-      case 'image':
-        if (c.content) runs.push(makeRun(c.content, style))
+      case 'image': {
+        const src = c.attrGet?.('src') ?? ''
+        const img = src && images.get(src)
+        if (img) runs.push(imageRun(img))
+        else if (c.content) runs.push(makeRun(c.content, style))
         break
+      }
+      case 'html_inline': {
+        if (/<br\s*\/?>/i.test(c.content)) runs.push(new TextRun({ break: 1 }))
+        else runs.push(...imgRunsFromHtml(c.content, images))
+        break
+      }
       default:
         break
     }
@@ -247,7 +269,7 @@ function codeBlockParagraph(content: string): Paragraph {
   })
 }
 
-function parseTable(tokens: MdToken[], start: number): { table: Table; next: number } {
+function parseTable(tokens: MdToken[], start: number, images: ImageMap): { table: Table; next: number } {
   const rows: TableRow[] = []
   let cells: TableCell[] = []
   let inHeader = false
@@ -261,7 +283,7 @@ function parseTable(tokens: MdToken[], start: number): { table: Table; next: num
     else if (t.type === 'tr_close') rows.push(new TableRow({ children: cells }))
     else if (t.type === 'th_open' || t.type === 'td_open') {
       const inline = tokens[i + 1]
-      const runs = inlineToRuns(inline?.children ?? [], inHeader ? { bold: true } : {})
+      const runs = inlineToRuns(inline?.children ?? [], images, inHeader ? { bold: true } : {})
       cells.push(
         new TableCell({
           children: [new Paragraph({ children: runs })],
@@ -280,6 +302,76 @@ function parseTable(tokens: MdToken[], start: number): { table: Table; next: num
     borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
   })
   return { table, next: i + 1 }
+}
+
+// ---- Images ----
+
+const MAX_IMG_W = 480
+
+function imageRun(img: ResolvedImage): ImageRun {
+  const scale = img.width > MAX_IMG_W ? MAX_IMG_W / img.width : 1
+  return new ImageRun({
+    data: img.data,
+    type: 'png',
+    transformation: { width: Math.max(1, Math.round(img.width * scale)), height: Math.max(1, Math.round(img.height * scale)) },
+  })
+}
+
+function imgRunsFromHtml(html: string, images: ImageMap): ImageRun[] {
+  const out: ImageRun[] = []
+  for (const m of html.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+    const img = images.get(m[1])
+    if (img) out.push(imageRun(img))
+  }
+  return out
+}
+
+/** Find every image src in the Markdown and load each into PNG bytes + size. */
+async function resolveImages(markdown: string): Promise<ImageMap> {
+  const srcs = new Set<string>()
+  for (const m of markdown.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)>?/g)) srcs.add(m[1])
+  for (const m of markdown.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) srcs.add(m[1])
+
+  const map: ImageMap = new Map()
+  await Promise.all(
+    [...srcs].map(async (src) => {
+      const r = await loadImageAsPng(src)
+      if (r) map.set(src, r)
+    }),
+  )
+  return map
+}
+
+/** Load an image (data URI or CORS-friendly URL) and re-encode as PNG bytes. */
+async function loadImageAsPng(src: string): Promise<ResolvedImage | null> {
+  try {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('load failed'))
+      img.src = src
+    })
+    const width = img.naturalWidth || 1
+    const height = img.naturalHeight || 1
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(img, 0, 0)
+    const dataUrl = canvas.toDataURL('image/png') // throws if the source is cross-origin tainted
+    return { data: base64ToBytes(dataUrl.split(',')[1] ?? ''), width, height }
+  } catch {
+    return null
+  }
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
 }
 
 function headingLevel(n: number) {

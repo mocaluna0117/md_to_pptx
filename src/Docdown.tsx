@@ -6,7 +6,7 @@ import './App.css'
 import './Docdown.css'
 
 const STORAGE_KEY = 'docdown:v1'
-const mdRender = new MarkdownIt({ html: false, linkify: true, breaks: false })
+const mdRender = new MarkdownIt({ html: true, linkify: true, breaks: false })
 
 const SAMPLE = `# ドキュメントのタイトル
 
