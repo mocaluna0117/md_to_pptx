@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MarkdownIt from 'markdown-it'
 import { navigate } from './Root'
 import { exportMarkdownToDocx } from './lib/exportDocx'
+import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import './App.css'
 import './Docdown.css'
 
@@ -41,6 +42,7 @@ interface Persisted {
   markdown?: string
   fileName?: string
   mdOpen?: boolean
+  images?: AttachedImages
 }
 
 function loadPersisted(): Persisted {
@@ -70,24 +72,39 @@ export default function Docdown() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'document')
   const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
+  const [images, setImages] = useState<AttachedImages>(persisted.images ?? {})
   const [status, setStatus] = useState<Status>('idle')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const importModeRef = useRef<'replace' | 'append'>('replace')
 
-  const html = useMemo(() => mdRender.render(stripFrontmatter(markdown)), [markdown])
+  const html = useMemo(() => mdRender.render(stripFrontmatter(resolveImagePaths(markdown, images))), [markdown, images])
+  const imageNames = Object.keys(images)
   const exporting = status === 'exporting'
   const error = typeof status === 'object' ? status.error : null
 
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, images }))
       } catch {
-        /* ignore */
+        // Images may exceed the storage quota: keep at least the text.
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen }))
+        } catch {
+          /* storage unavailable */
+        }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdOpen])
+  }, [markdown, fileName, mdOpen, images])
+
+  async function addImageFiles(files: File[]) {
+    const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
+    if (imgs.length === 0) return
+    const loaded = await readImageFiles(imgs)
+    setImages((cur) => ({ ...cur, ...loaded }))
+  }
 
   async function importFile(file: File, mode: 'replace' | 'append') {
     try {
@@ -107,7 +124,7 @@ export default function Docdown() {
   async function handleExport() {
     setStatus('exporting')
     try {
-      await exportMarkdownToDocx(markdown, { fileName })
+      await exportMarkdownToDocx(resolveImagePaths(markdown, images), { fileName })
       setStatus('idle')
     } catch (err) {
       setStatus({ error: err instanceof Error ? err.message : String(err) })
@@ -118,6 +135,7 @@ export default function Docdown() {
     if (!window.confirm('内容を初期状態に戻します。よろしいですか？')) return
     setMarkdown(SAMPLE)
     setFileName('document')
+    setImages({})
     setStatus('idle')
     try {
       localStorage.removeItem(STORAGE_KEY)
@@ -175,8 +193,10 @@ export default function Docdown() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault()
-              const f = e.dataTransfer.files?.[0]
-              if (f && /\.(md|markdown|mdown|txt)$/i.test(f.name)) importFile(f, 'replace')
+              const files = Array.from(e.dataTransfer.files ?? [])
+              const mdFile = files.find((f) => /\.(md|markdown|mdown|txt)$/i.test(f.name))
+              if (mdFile) importFile(mdFile, 'replace')
+              addImageFiles(files)
             }}
           >
             <div className="pane-head">
@@ -202,6 +222,13 @@ export default function Docdown() {
                 >
                   ＋ 結合
                 </button>
+                <button
+                  className="loadmd"
+                  onClick={() => imageInputRef.current?.click()}
+                  title="画像ファイルを読み込み、Markdown 内の相対パス（例: ![](fig1.png)）に紐づけます"
+                >
+                  🖼 画像
+                </button>
               </span>
               <input
                 ref={fileInputRef}
@@ -214,7 +241,29 @@ export default function Docdown() {
                   e.target.value = ''
                 }}
               />
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => {
+                  addImageFiles(Array.from(e.target.files ?? []))
+                  e.target.value = ''
+                }}
+              />
             </div>
+            {imageNames.length > 0 && (
+              <div className="attached">
+                <span className="attached-label">画像 {imageNames.length} 枚:</span>
+                <span className="attached-names" title={imageNames.join(', ')}>
+                  {imageNames.join(', ')}
+                </span>
+                <button className="attached-clear" onClick={() => setImages({})} title="添付画像をすべて外す">
+                  クリア
+                </button>
+              </div>
+            )}
             <textarea
               className="editor"
               value={markdown}

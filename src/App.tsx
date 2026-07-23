@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { navigate } from './Root'
+import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { exportDeckToPptx } from './lib/exportDeck'
 import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
@@ -134,6 +135,10 @@ function App() {
   // True when the deck has edits not derived from the current Markdown.
   const [deckDirty, setDeckDirty] = useState<boolean>(persisted.deckDirty ?? false)
   const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
+  const [images, setImages] = useState<AttachedImages>({})
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const [drawerWidth, setDrawerWidth] = useState<number>(
     Math.min(MAX_DRAWER, Math.max(MIN_DRAWER, persisted.drawerWidth ?? 380)),
   )
@@ -288,7 +293,7 @@ function App() {
 
   /** Build the deck from Markdown (rendered via Marp) and reset history. */
   const buildDeck = useCallback(async (src: string) => {
-    const d = await deckFromRenderedMarkdown(src)
+    const d = await deckFromRenderedMarkdown(resolveImagePaths(src, imagesRef.current))
     deckRef.current = d
     setDeck(d)
     deckSourceRef.current = src
@@ -296,6 +301,17 @@ function App() {
     clearHistory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function addImageFiles(files: File[]) {
+    const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
+    if (imgs.length === 0) return
+    const loaded = await readImageFiles(imgs)
+    const next = { ...imagesRef.current, ...loaded }
+    imagesRef.current = next
+    setImages(next)
+    // If the deck still matches the Markdown (no manual edits), rebuild so images show now.
+    if (!deckDirty) await buildDeck(markdown)
+  }
 
   // On first load, build a deck from the Markdown if we don't have one yet.
   const bootedRef = useRef(false)
@@ -363,6 +379,7 @@ function App() {
     }
     setMarkdown(SAMPLE)
     setFileName('slides')
+    setImages({})
     setStatus({ kind: 'idle' })
     try {
       localStorage.removeItem(STORAGE_KEY)
@@ -485,8 +502,10 @@ function App() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault()
-              const f = e.dataTransfer.files?.[0]
-              if (f && /\.(md|markdown|mdown|txt)$/i.test(f.name)) importMarkdownFile(f)
+              const files = Array.from(e.dataTransfer.files ?? [])
+              const mdFile = files.find((f) => /\.(md|markdown|mdown|txt)$/i.test(f.name))
+              if (mdFile) importMarkdownFile(mdFile)
+              addImageFiles(files)
             }}
           >
             <div className="pane-head">
@@ -514,6 +533,14 @@ function App() {
                 >
                   ＋ 結合
                 </button>
+                <button
+                  className="loadmd"
+                  onClick={() => imageInputRef.current?.click()}
+                  data-tip="画像ファイルを読み込み、Markdown 内の相対パス（例: ![](fig1.png)）に紐づけます。読み込んだら「プレビューに反映」"
+                  aria-label="画像ファイルを読み込む"
+                >
+                  🖼 画像
+                </button>
               </span>
               <input
                 ref={fileInputRef}
@@ -526,7 +553,29 @@ function App() {
                   e.target.value = ''
                 }}
               />
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => {
+                  addImageFiles(Array.from(e.target.files ?? []))
+                  e.target.value = ''
+                }}
+              />
             </div>
+            {Object.keys(images).length > 0 && (
+              <div className="attached">
+                <span className="attached-label">画像 {Object.keys(images).length} 枚:</span>
+                <span className="attached-names" title={Object.keys(images).join(', ')}>
+                  {Object.keys(images).join(', ')}
+                </span>
+                <button className="attached-clear" onClick={() => setImages({})} title="添付画像をすべて外す">
+                  クリア
+                </button>
+              </div>
+            )}
             <textarea
               className="editor"
               value={markdown}
@@ -615,6 +664,10 @@ function App() {
                 <ul>
                   <li>できた Markdown を <b>「📂 インポート」</b>／ドロワーに貼り付け／ドラッグ＆ドロップ。</li>
                   <li><b>「＋ 結合」</b>で 2 つめ以降の Markdown を現在の内容に連結。</li>
+                  <li>
+                    画像が <b>相対パス参照</b>（例: <code>![](fig1.png)</code>）のときは、<b>「🖼 画像」</b>でその画像ファイルを
+                    読み込むと、ファイル名一致で表示・書き出しに反映されます（データ URI 埋め込みの画像はそのまま使えます）。
+                  </li>
                   <li>
                     もちろん <b>自分で 1 から書く</b>こともできます（左端の縦タブ「Markdown」を開いて直接入力・
                     境界のドラッグで幅調整）。

@@ -559,6 +559,45 @@
   gap: 6px;
 }
 
+/* Attached-images bar (below the Markdown pane header). */
+.attached {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.attached-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+.attached-names {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attached-clear {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.attached-clear:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .loadmd {
   font: inherit;
   font-size: 12px;
