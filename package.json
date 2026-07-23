@@ -14,14 +14,13 @@
     "docx": "^9.7.1",
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.1",
-    "katex": "^0.18.1",
     "markdown-it": "^14.3.0",
+    "mathjax-full": "^3.2.2",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
