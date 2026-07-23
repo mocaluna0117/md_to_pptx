@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import MarkdownIt from 'markdown-it'
 import { navigate } from './Root'
 import { exportMarkdownToDocx } from './lib/exportDocx'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
+import { mathToImages } from './lib/math'
 import './App.css'
 import './Docdown.css'
 
@@ -32,6 +33,12 @@ Markdown で書いた文章を、そのまま **編集できる Word（.docx）*
 | 表 | ネイティブの Word の表に変換 |
 
 > 引用も使えます。
+
+## 数式（LaTeX）
+
+インラインは $E = mc^2$、ディスプレイは次のように書けます。
+
+$$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$
 
 \`\`\`
 コードブロックは等幅で出力されます
@@ -78,8 +85,21 @@ export default function Docdown() {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const importModeRef = useRef<'replace' | 'append'>('replace')
 
-  const html = useMemo(() => mdRender.render(stripFrontmatter(resolveImagePaths(markdown, images))), [markdown, images])
+  const [html, setHtml] = useState('')
   const imageNames = Object.keys(images)
+
+  // Preview renders asynchronously (math is rasterized); debounced + math-cached.
+  useEffect(() => {
+    let cancelled = false
+    const id = setTimeout(async () => {
+      const prepared = await mathToImages(resolveImagePaths(markdown, images))
+      if (!cancelled) setHtml(mdRender.render(stripFrontmatter(prepared)))
+    }, 200)
+    return () => {
+      cancelled = true
+      clearTimeout(id)
+    }
+  }, [markdown, images])
   const exporting = status === 'exporting'
   const error = typeof status === 'object' ? status.error : null
 
@@ -124,7 +144,7 @@ export default function Docdown() {
   async function handleExport() {
     setStatus('exporting')
     try {
-      await exportMarkdownToDocx(resolveImagePaths(markdown, images), { fileName })
+      await exportMarkdownToDocx(await mathToImages(resolveImagePaths(markdown, images)), { fileName })
       setStatus('idle')
     } catch (err) {
       setStatus({ error: err instanceof Error ? err.message : String(err) })

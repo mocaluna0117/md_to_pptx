@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { navigate } from './Root'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
+import { mathToImages } from './lib/math'
 import { exportDeckToPptx } from './lib/exportDeck'
 import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
@@ -293,7 +294,8 @@ function App() {
 
   /** Build the deck from Markdown (rendered via Marp) and reset history. */
   const buildDeck = useCallback(async (src: string) => {
-    const d = await deckFromRenderedMarkdown(resolveImagePaths(src, imagesRef.current))
+    const prepared = await mathToImages(resolveImagePaths(src, imagesRef.current))
+    const d = await deckFromRenderedMarkdown(prepared)
     deckRef.current = d
     setDeck(d)
     deckSourceRef.current = src
@@ -679,7 +681,7 @@ function App() {
                 <h3>2. スライドに反映する</h3>
                 <ul>
                   <li>ドロワー下の <b>「プレビューに反映」</b>で、Markdown から中央のスライドを作成／作り直し。</li>
-                  <li>見出しや <code>---</code>、箇条書き・表・コードブロックがそのままスライドになります。</li>
+                  <li>見出しや <code>---</code>、箇条書き・表・コードブロック・<b>数式（<code>$…$</code> / <code>$$…$$</code>）</b>がそのままスライドになります。</li>
                 </ul>
               </section>
 
