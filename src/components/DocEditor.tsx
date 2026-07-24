@@ -40,6 +40,23 @@ const FONT_OPTIONS: { value: string; label: string }[] = [
 
 const COLORS = ['111111', 'E11D48', '2563EB', '059669', 'D97706', '7C3AED', '6B7280', 'FFFFFF']
 
+// Alignment icon shared with Deckdown's visual editor (rows of bars).
+type Align = 'left' | 'center' | 'right'
+const ALIGN_BARS: Record<Align, [number, number][]> = {
+  left: [[1, 14], [1, 8], [1, 14], [1, 8]],
+  center: [[1, 14], [4, 8], [1, 14], [4, 8]],
+  right: [[1, 14], [7, 8], [1, 14], [7, 8]],
+}
+function AlignIcon({ dir }: { dir: Align }) {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden focusable="false">
+      {ALIGN_BARS[dir].map(([x, w], i) => (
+        <rect key={i} x={x} y={2.5 + i * 3.7} width={w} height="1.6" rx="0.8" />
+      ))}
+    </svg>
+  )
+}
+
 /**
  * WYSIWYG document editor: a flowing contentEditable page plus a layer of free-floating
  * text boxes, driven by one shared formatting toolbar. The edited HTML (flow) and the box
@@ -288,7 +305,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     window.removeEventListener('pointerup', onGestureUp)
   }
 
-  const btn = (label: string, title: string, onClick: () => void, isActive = false, extraClass = '') => (
+  const btn = (label: React.ReactNode, title: string, onClick: () => void, isActive = false, extraClass = '') => (
     <button
       type="button"
       className={`det-btn${isActive ? ' active' : ''}${extraClass ? ' ' + extraClass : ''}`}
@@ -370,9 +387,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         </div>
 
         <div className="det-group">
-          {btn('⯀', '左揃え', () => exec('justifyLeft'))}
-          {btn('☰', '中央揃え', () => exec('justifyCenter'))}
-          {btn('▟', '右揃え', () => exec('justifyRight'))}
+          {btn(<AlignIcon dir="left" />, '左揃え', () => exec('justifyLeft'))}
+          {btn(<AlignIcon dir="center" />, '中央揃え', () => exec('justifyCenter'))}
+          {btn(<AlignIcon dir="right" />, '右揃え', () => exec('justifyRight'))}
         </div>
 
         <div className="det-group">
