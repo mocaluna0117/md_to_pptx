@@ -57,6 +57,18 @@ function AlignIcon({ dir }: { dir: Align }) {
   )
 }
 
+const BLOCK_TAGS = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE|TD|TH|UL|OL|TABLE|FIGURE|SECTION)$/
+
+/** Nearest block-level ancestor of `node` within `root` (or null). */
+function blockAncestor(node: Node | null, root: HTMLElement): HTMLElement | null {
+  let n: Node | null = node
+  while (n && n !== root) {
+    if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.test((n as HTMLElement).tagName)) return n as HTMLElement
+    n = n.parentNode
+  }
+  return null
+}
+
 // Curved-arrow undo/redo glyphs shared with Deckdown's visual editor.
 function UndoIcon() {
   return (
@@ -97,7 +109,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null)
-  const [active, setActive] = useState({ bold: false, italic: false, strike: false, block: 'p' })
+  const [active, setActive] = useState({ bold: false, italic: false, strike: false, block: 'p', align: 'left' })
   const imageNames = Object.keys(images)
 
   // Seed the flowing content once on mount.
@@ -156,6 +168,12 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       }
       node = node.parentNode
     }
+    let align = 'left'
+    const blockEl = blockAncestor(sel.getRangeAt(0).startContainer, surface)
+    if (blockEl) {
+      const ta = getComputedStyle(blockEl).textAlign
+      align = ta === 'center' ? 'center' : ta === 'right' || ta === 'end' ? 'right' : ta === 'justify' ? 'justify' : 'left'
+    }
     let bold = false
     let italic = false
     let strike = false
@@ -166,7 +184,31 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     } catch {
       /* ignore */
     }
-    setActive({ bold, italic, strike, block })
+    setActive({ bold, italic, strike, block, align })
+  }
+
+  /**
+   * Set paragraph alignment deterministically on the block(s) the selection touches,
+   * instead of document.execCommand('justify*') — which produces broken nested <p> when
+   * lines are joined by <br>, so some lines wouldn't align.
+   */
+  function applyAlign(dir: 'left' | 'center' | 'right') {
+    restore()
+    const root = activeEditableRef.current
+    const sel = window.getSelection()
+    if (!root || !sel || sel.rangeCount === 0) return
+    const range = sel.getRangeAt(0)
+    const blocks: HTMLElement[] = []
+    for (const child of Array.from(root.children)) {
+      if (range.intersectsNode(child)) blocks.push(child as HTMLElement)
+    }
+    if (blocks.length === 0) {
+      const b = blockAncestor(range.startContainer, root)
+      if (b) blocks.push(b)
+    }
+    for (const el of blocks) el.style.textAlign = dir
+    refreshActive(root)
+    syncActive()
   }
 
   /** Push the current content of whichever surface was last active back to the parent. */
@@ -403,9 +445,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         </div>
 
         <div className="det-group">
-          {btn(<AlignIcon dir="left" />, '左揃え', () => exec('justifyLeft'))}
-          {btn(<AlignIcon dir="center" />, '中央揃え', () => exec('justifyCenter'))}
-          {btn(<AlignIcon dir="right" />, '右揃え', () => exec('justifyRight'))}
+          {btn(<AlignIcon dir="left" />, '左揃え', () => applyAlign('left'), active.align === 'left')}
+          {btn(<AlignIcon dir="center" />, '中央揃え', () => applyAlign('center'), active.align === 'center')}
+          {btn(<AlignIcon dir="right" />, '右揃え', () => applyAlign('right'), active.align === 'right')}
         </div>
 
         <div className="det-group">
