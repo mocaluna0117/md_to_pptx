@@ -54,6 +54,99 @@
   color: var(--text);
 }
 
+.play-btn {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.play-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.play-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- Slideshow (full-screen presentation) ---- */
+.slideshow {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+}
+.slideshow.hide-cursor {
+  cursor: none;
+}
+.show-stage {
+  flex: 0 0 auto;
+  transform-origin: center center;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+}
+
+.show-controls {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(20, 20, 22, 0.72);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  transition: opacity 0.25s ease;
+}
+.show-controls.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.show-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.show-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+.show-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.show-count {
+  min-width: 64px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #e5e7eb;
+}
+.show-exit {
+  margin-left: 6px;
+  font-size: 15px;
+}
+
 .help-overlay {
   position: fixed;
   inset: 0;

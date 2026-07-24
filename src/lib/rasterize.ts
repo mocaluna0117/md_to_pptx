@@ -1,6 +1,6 @@
 import * as htmlToImage from 'html-to-image'
 import { renderSlides } from './marp'
-import { SLIDE_W, SLIDE_H, tableColFractions, tableRowFractions, type Deck, type TableEl } from './deck'
+import { SLIDE_W, SLIDE_H, tableColFractions, tableRowFractions, type Deck, type Slide, type TableEl } from './deck'
 import { runsToHtml } from './richText'
 
 export interface PngSlide {
@@ -85,7 +85,7 @@ export async function rasterizeDeck(deck: Deck, options: RasterizeOptions = {}):
   style.textContent = 'code{font-family:ui-monospace,Menlo,Consolas,monospace}'
   stage.appendChild(style)
   const slide = document.createElement('div')
-  slide.style.cssText = `position:relative;width:${DECK_W}px;height:${DECK_H}px;overflow:hidden;font-family:Arial,"Noto Sans CJK JP","Yu Gothic",sans-serif;`
+  slide.style.cssText = SLIDE_BASE_STYLE
   stage.appendChild(slide)
   document.body.appendChild(stage)
 
@@ -93,37 +93,7 @@ export async function rasterizeDeck(deck: Deck, options: RasterizeOptions = {}):
     await documentFontsReady()
     const out: PngSlide[] = []
     for (let i = 0; i < deck.slides.length; i++) {
-      const s = deck.slides[i]
-      slide.style.background = `#${s.background || 'FFFFFF'}`
-      slide.innerHTML = ''
-      for (const tb of s.tables ?? []) {
-        const wrap = document.createElement('div')
-        wrap.style.cssText = pos(tb) + `overflow:hidden;box-sizing:border-box;font-size:${(tb.fontSize * PX_PER_IN) / 72}px;`
-        wrap.innerHTML = tableHtml(tb)
-        slide.appendChild(wrap)
-      }
-      for (const im of s.images ?? []) {
-        const img = document.createElement('img')
-        img.src = im.src
-        img.style.cssText = pos(im) + 'object-fit:fill;'
-        slide.appendChild(img)
-      }
-      for (const box of s.boxes) {
-        const el = document.createElement('div')
-        const fontFamily = box.pre
-          ? 'ui-monospace,Menlo,Consolas,monospace'
-          : box.fontFamily
-            ? `"${box.fontFamily}"`
-            : 'inherit'
-        el.style.cssText =
-          pos(box) +
-          `overflow:hidden;padding:4px 6px;box-sizing:border-box;word-break:break-word;` +
-          `white-space:${box.pre ? 'pre' : 'pre-wrap'};line-height:${box.pre ? 1.25 : 1.3};` +
-          `font-size:${(box.fontSize * PX_PER_IN) / 72}px;text-align:${box.align};font-family:${fontFamily};` +
-          `color:${box.color ? `#${box.color}` : '#111'};`
-        el.innerHTML = runsToHtml(box.runs, PX_PER_IN) || '&nbsp;'
-        slide.appendChild(el)
-      }
+      fillSlideElement(slide, deck.slides[i])
       await waitForImages(slide)
       out.push({ data: await toDataUrl(slide, DECK_W, DECK_H, pixelRatio, jpeg), w: DECK_W, h: DECK_H })
       onProgress?.(i + 1, deck.slides.length)
@@ -131,6 +101,47 @@ export async function rasterizeDeck(deck: Deck, options: RasterizeOptions = {}):
     return out
   } finally {
     document.body.removeChild(stage)
+  }
+}
+
+/** Base style for a slide element in its native 1280×720 coordinate space. */
+export const SLIDE_BASE_STYLE = `position:relative;width:${DECK_W}px;height:${DECK_H}px;overflow:hidden;font-family:Arial,"Noto Sans CJK JP","Yu Gothic",sans-serif;`
+/** Native slide pixel size (the coordinate space boxes are positioned in). */
+export const DECK_PX = { w: DECK_W, h: DECK_H }
+/** Inline-code font, needed when a slide element is rendered live (not via rasterizeDeck's stage). */
+export const SLIDE_CODE_CSS = 'code{font-family:ui-monospace,Menlo,Consolas,monospace}'
+
+/** Populate a slide element with its tables, images and boxes (shared by rasterize + slideshow). */
+export function fillSlideElement(slide: HTMLElement, s: Slide): void {
+  slide.style.background = `#${s.background || 'FFFFFF'}`
+  slide.innerHTML = ''
+  for (const tb of s.tables ?? []) {
+    const wrap = document.createElement('div')
+    wrap.style.cssText = pos(tb) + `overflow:hidden;box-sizing:border-box;font-size:${(tb.fontSize * PX_PER_IN) / 72}px;`
+    wrap.innerHTML = tableHtml(tb)
+    slide.appendChild(wrap)
+  }
+  for (const im of s.images ?? []) {
+    const img = document.createElement('img')
+    img.src = im.src
+    img.style.cssText = pos(im) + 'object-fit:fill;'
+    slide.appendChild(img)
+  }
+  for (const box of s.boxes) {
+    const el = document.createElement('div')
+    const fontFamily = box.pre
+      ? 'ui-monospace,Menlo,Consolas,monospace'
+      : box.fontFamily
+        ? `"${box.fontFamily}"`
+        : 'inherit'
+    el.style.cssText =
+      pos(box) +
+      `overflow:hidden;padding:4px 6px;box-sizing:border-box;word-break:break-word;` +
+      `white-space:${box.pre ? 'pre' : 'pre-wrap'};line-height:${box.pre ? 1.25 : 1.3};` +
+      `font-size:${(box.fontSize * PX_PER_IN) / 72}px;text-align:${box.align};font-family:${fontFamily};` +
+      `color:${box.color ? `#${box.color}` : '#111'};`
+    el.innerHTML = runsToHtml(box.runs, PX_PER_IN) || '&nbsp;'
+    slide.appendChild(el)
   }
 }
 

@@ -7,6 +7,7 @@ import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
 import { deckFromRenderedMarkdown } from './lib/deckFromRender'
 import VisualEditor from './components/VisualEditor'
+import Slideshow from './components/Slideshow'
 import './App.css'
 
 type ExportTarget = 'pptx' | 'pdf'
@@ -148,6 +149,7 @@ function App() {
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [promptCopied, setPromptCopied] = useState(false)
+  const [playing, setPlaying] = useState(false)
 
   async function copyPrompt() {
     if (await copyText(AI_PROMPT)) {
@@ -420,6 +422,15 @@ function App() {
           </button>
           <button className="help-btn" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
             ？ 使い方
+          </button>
+          <button
+            className="play-btn"
+            onClick={() => setPlaying(true)}
+            disabled={!deck || deck.slides.length === 0}
+            title="スライドショーを再生（全画面 / ← → で移動・Esc で終了）"
+            aria-label="スライドショーを再生"
+          >
+            ▶ 再生
           </button>
         </div>
         <div className="brand">
@@ -737,6 +748,10 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {playing && deck && deck.slides.length > 0 && (
+        <Slideshow slides={deck.slides} onClose={() => setPlaying(false)} />
       )}
     </div>
   )
