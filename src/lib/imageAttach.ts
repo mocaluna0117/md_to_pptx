@@ -26,18 +26,26 @@ export function isRelativeRef(src: string): boolean {
  * existing data URIs are left untouched. The original Markdown is not mutated.
  */
 export function resolveImagePaths(markdown: string, images: AttachedImages): string {
-  if (Object.keys(images).length === 0) return markdown
+  const keys = Object.keys(images)
+  if (keys.length === 0) return markdown
+
+  // Match by NFC-normalized name: a Markdown reference is usually precomposed (NFC),
+  // while a file name from macOS drag & drop / file pickers is decomposed (NFD), so
+  // e.g. "プ" (U+30D7) vs "フ"+"゚" (U+30D5 U+309A) would otherwise never match.
+  const byName: AttachedImages = {}
+  for (const k of keys) byName[k.normalize('NFC')] = images[k]
+  const find = (src: string): string | undefined => byName[basename(src).normalize('NFC')]
 
   let out = markdown.replace(/(!\[[^\]]*\]\(\s*)(<[^>]+>|[^)\s]+)/g, (whole, pre: string, rawSrc: string) => {
     const src = rawSrc.replace(/^<|>$/g, '')
     if (!isRelativeRef(src)) return whole
-    const data = images[basename(src)]
+    const data = find(src)
     return data ? pre + data : whole
   })
 
   out = out.replace(/(<img\b[^>]*?\bsrc\s*=\s*["'])([^"']+)(["'])/gi, (whole, pre: string, src: string, post: string) => {
     if (!isRelativeRef(src)) return whole
-    const data = images[basename(src)]
+    const data = find(src)
     return data ? pre + data + post : whole
   })
 
@@ -53,7 +61,8 @@ export async function readImageFiles(files: File[]): Promise<AttachedImages> {
         new Promise<void>((resolve) => {
           const reader = new FileReader()
           reader.onload = () => {
-            out[f.name] = String(reader.result)
+            // Store under the NFC-normalized name so it matches NFC Markdown references.
+            out[f.name.normalize('NFC')] = String(reader.result)
             resolve()
           }
           reader.onerror = () => resolve()
