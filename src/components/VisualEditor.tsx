@@ -81,6 +81,44 @@ function RedoIcon() {
   )
 }
 
+/** Distance (px) within which a dragged edge/center snaps to a guide line. */
+const SNAP_PX = 6
+
+type SnapRect = { x: number; y: number; w: number; h: number }
+
+/**
+ * PowerPoint-style smart guides: snap the dragged element's left/center/right (and
+ * top/middle/bottom) to the slide's edges & center and to other elements' edges & centers.
+ * Returns the (possibly snapped) position plus the guide lines to draw (in inches, or null).
+ */
+function snapMove(x: number, y: number, w: number, h: number, others: SnapRect[], threshold: number) {
+  const xLines = [SLIDE_W / 2, 0, SLIDE_W]
+  const yLines = [SLIDE_H / 2, 0, SLIDE_H]
+  for (const o of others) {
+    xLines.push(o.x, o.x + o.w / 2, o.x + o.w)
+    yLines.push(o.y, o.y + o.h / 2, o.y + o.h)
+  }
+  const snap1D = (points: number[], lines: number[]) => {
+    let best = threshold
+    let line: number | null = null
+    let point = 0
+    for (const p of points) {
+      for (const l of lines) {
+        const d = Math.abs(p - l)
+        if (d < best) {
+          best = d
+          line = l
+          point = p
+        }
+      }
+    }
+    return line === null ? { delta: 0, guide: null as number | null } : { delta: line - point, guide: line }
+  }
+  const sx = snap1D([x, x + w / 2, x + w], xLines)
+  const sy = snap1D([y, y + h / 2, y + h], yLines)
+  return { x: x + sx.delta, y: y + sy.delta, v: sx.guide, h: sy.guide }
+}
+
 export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onRedo, canUndo, canRedo }: Props) {
   const [si, setSi] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -88,6 +126,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   // A table cell currently being edited (plain-text contentEditable).
   const [editingCell, setEditingCell] = useState<{ id: string; r: number; c: number } | null>(null)
   const [ppi, setPpi] = useState(88) // pixels per inch of the stage
+  // Smart-guide lines shown while dragging (positions in inches, or null).
+  const [guides, setGuides] = useState<{ v: number | null; h: number | null }>({ v: null, h: null })
 
   const stageRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
@@ -162,12 +202,21 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
       const dx = (e.clientX - d.sx) / ppiRef.current
       const dy = (e.clientY - d.sy) / ppiRef.current
       if (d.mode === 'move') {
-        patchElement(d.id, { x: clamp(d.orig.x + dx, 0, SLIDE_W - 0.2), y: clamp(d.orig.y + dy, 0, SLIDE_H - 0.2) }, d.key)
+        const px = clamp(d.orig.x + dx, 0, SLIDE_W - 0.2)
+        const py = clamp(d.orig.y + dy, 0, SLIDE_H - 0.2)
+        const s = deckRef.current.slides[siRef.current]
+        const others: SnapRect[] = [...s.boxes, ...(s.images ?? []), ...(s.tables ?? [])]
+          .filter((o) => o.id !== d.id)
+          .map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h }))
+        const snapped = snapMove(px, py, d.orig.w, d.orig.h, others, SNAP_PX / ppiRef.current)
+        patchElement(d.id, { x: snapped.x, y: snapped.y }, d.key)
+        setGuides({ v: snapped.v, h: snapped.h })
       } else {
         patchElement(d.id, { w: clamp(d.orig.w + dx, 0.3, SLIDE_W), h: clamp(d.orig.h + dy, 0.3, SLIDE_H) }, d.key)
       }
     }
     const onUp = () => {
+      if (dragRef.current || bandDragRef.current) setGuides({ v: null, h: null })
       dragRef.current = null
       bandDragRef.current = null
     }
@@ -635,6 +684,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
             }
           }}
         >
+          {guides.v != null && <div className="vguide vguide-v" style={{ left: guides.v * ppi }} aria-hidden />}
+          {guides.h != null && <div className="vguide vguide-h" style={{ top: guides.h * ppi }} aria-hidden />}
           {(slide.tables ?? []).map((tb) => {
             const fractions = tableColFractions(tb)
             const rowFractions = tableRowFractions(tb)

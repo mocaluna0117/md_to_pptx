@@ -921,6 +921,26 @@
   touch-action: none;
 }
 
+/* Smart-alignment guide lines shown while dragging. */
+.vguide {
+  position: absolute;
+  z-index: 60;
+  pointer-events: none;
+  background: #ff2d55;
+}
+.vguide-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+}
+.vguide-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+}
+
 .vbox {
   position: absolute;
   box-sizing: border-box;
