@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import MarkdownIt from 'markdown-it'
 import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import { navigate } from './Root'
@@ -100,6 +100,18 @@ export default function Docdown() {
   const importModeRef = useRef<'replace' | 'append'>('replace')
   const exportWrapRef = useRef<HTMLDivElement>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
+
+  // Size the filename input to the actual rendered text width (measured via a
+  // hidden mirror), so the box hugs short names instead of over-reserving space.
+  const fnInputRef = useRef<HTMLInputElement>(null)
+  const fnSizerRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const input = fnInputRef.current
+    const sizer = fnSizerRef.current
+    if (!input || !sizer) return
+    const textW = sizer.getBoundingClientRect().width
+    input.style.width = `${Math.min(textW + 6, 320)}px` // +6px caret room, 320px cap
+  }, [fileName])
 
   // Drag the drawer handle to resize; a click without movement toggles it (mirrors Deckdown).
   function onHandlePointerDown(e: React.PointerEvent) {
@@ -311,6 +323,7 @@ export default function Docdown() {
           <label className="filename">
             <span className="fn-label">ファイル名</span>
             <input
+              ref={fnInputRef}
               type="text"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
@@ -318,6 +331,9 @@ export default function Docdown() {
               spellCheck={false}
               aria-label="ファイル名"
             />
+            <span ref={fnSizerRef} className="fn-sizer" aria-hidden>
+              {fileName || 'document'}
+            </span>
           </label>
           <div className="export-wrap" ref={exportWrapRef}>
             <button
