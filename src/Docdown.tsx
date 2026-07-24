@@ -59,6 +59,7 @@ interface Persisted {
   docDirty?: boolean
   boxes?: DocBox[]
   drawerWidth?: number
+  mdFileName?: string
 }
 
 function loadPersisted(): Persisted {
@@ -87,6 +88,8 @@ type Status = 'idle' | 'exporting' | { error: string }
 export default function Docdown() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'document')
+  // Name of the imported Markdown file currently loaded (empty when using the built-in sample).
+  const [mdFileName, setMdFileName] = useState<string>(persisted.mdFileName ?? '')
   const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
   const [drawerWidth, setDrawerWidth] = useState<number>(
     Math.min(MAX_DRAWER, Math.max(MIN_DRAWER, persisted.drawerWidth ?? 360)),
@@ -202,18 +205,18 @@ export default function Docdown() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes }))
       } catch {
         // Document HTML / images / boxes may exceed the storage quota: keep at least the text.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, drawerWidth }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes])
+  }, [markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes])
 
   async function addImageFiles(files: File[]) {
     const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
@@ -236,6 +239,7 @@ export default function Docdown() {
           return
         }
         setMarkdown(text)
+        setMdFileName(file.name)
         const base = file.name.replace(/\.[^.]+$/, '')
         if (base) setFileName(base)
         await buildDoc(text)
@@ -293,6 +297,7 @@ export default function Docdown() {
     if (!window.confirm('内容を初期状態に戻します。よろしいですか？')) return
     setMarkdown(SAMPLE)
     setFileName('document')
+    setMdFileName('')
     imagesRef.current = {}
     setImages({})
     boxesRef.current = []
@@ -439,6 +444,17 @@ export default function Docdown() {
                 }}
               />
             </div>
+            {mdFileName && (
+              <div className="md-source" title={`読み込み中: ${mdFileName}`}>
+                <span className="md-source-icon" aria-hidden>
+                  📄
+                </span>
+                <span className="md-source-name">{mdFileName}</span>
+                <button className="md-source-clear" onClick={() => setMdFileName('')} title="ファイル名表示を消す">
+                  ✕
+                </button>
+              </div>
+            )}
             {imageNames.length > 0 && (
               <div className="attached">
                 <span className="attached-label">画像 {imageNames.length} 枚:</span>

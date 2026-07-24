@@ -21,6 +21,7 @@ interface Persisted {
   deckDirty?: boolean
   mdOpen?: boolean
   drawerWidth?: number
+  mdFileName?: string
 }
 
 const MIN_DRAWER = 240
@@ -133,6 +134,8 @@ paginate: true
 function App() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'slides')
+  // Name of the imported Markdown file currently loaded (empty when using the built-in sample).
+  const [mdFileName, setMdFileName] = useState<string>(persisted.mdFileName ?? '')
   const [deck, setDeck] = useState<Deck | null>(persisted.deck ?? null)
   // True when the deck has edits not derived from the current Markdown.
   const [deckDirty, setDeckDirty] = useState<boolean>(persisted.deckDirty ?? false)
@@ -186,18 +189,18 @@ function App() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deck, deckDirty, mdOpen, drawerWidth }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, deck, deckDirty, mdOpen, drawerWidth }))
       } catch {
         // Deck too big for storage (e.g. embedded images): keep at least the Markdown.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, deckDirty, mdOpen, drawerWidth }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, deckDirty, mdOpen, drawerWidth }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, deck, deckDirty, mdOpen, drawerWidth])
+  }, [markdown, fileName, mdFileName, deck, deckDirty, mdOpen, drawerWidth])
 
   /** Drag the Markdown drawer's edge to resize; releasing without a drag toggles it. */
   function onHandlePointerDown(e: React.PointerEvent) {
@@ -367,6 +370,7 @@ function App() {
         await buildDeck(merged)
       } else {
         setMarkdown(text)
+        setMdFileName(file.name)
         const base = file.name.replace(/\.[^.]+$/, '')
         if (base) setFileName(base)
         await buildDeck(text)
@@ -383,6 +387,7 @@ function App() {
     }
     setMarkdown(SAMPLE)
     setFileName('slides')
+    setMdFileName('')
     setImages({})
     setStatus({ kind: 'idle' })
     try {
@@ -578,6 +583,17 @@ function App() {
                 }}
               />
             </div>
+            {mdFileName && (
+              <div className="md-source" title={`読み込み中: ${mdFileName}`}>
+                <span className="md-source-icon" aria-hidden>
+                  📄
+                </span>
+                <span className="md-source-name">{mdFileName}</span>
+                <button className="md-source-clear" onClick={() => setMdFileName('')} title="ファイル名表示を消す">
+                  ✕
+                </button>
+              </div>
+            )}
             {Object.keys(images).length > 0 && (
               <div className="attached">
                 <span className="attached-label">画像 {Object.keys(images).length} 枚:</span>
