@@ -34,12 +34,6 @@
   color: var(--text);
 }
 
-/* Toggle-only drawer handle (Docdown has no width drag). */
-.md-handle.toggle {
-  cursor: pointer;
-  touch-action: auto;
-}
-
 /* ---- "使い方" help ---- */
 .help-btn {
   grid-column: 1;

@@ -12,6 +12,8 @@ import './Docdown.css'
 
 const STORAGE_KEY = 'docdown:v1'
 const mdRender = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
+const MIN_DRAWER = 240
+const MAX_DRAWER = 760
 
 const SAMPLE = `# ドキュメントのタイトル
 
@@ -56,6 +58,7 @@ interface Persisted {
   docHtml?: string
   docDirty?: boolean
   boxes?: DocBox[]
+  drawerWidth?: number
 }
 
 function loadPersisted(): Persisted {
@@ -85,6 +88,10 @@ export default function Docdown() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'document')
   const [mdOpen, setMdOpen] = useState<boolean>(persisted.mdOpen ?? true)
+  const [drawerWidth, setDrawerWidth] = useState<number>(
+    Math.min(MAX_DRAWER, Math.max(MIN_DRAWER, persisted.drawerWidth ?? 360)),
+  )
+  const [resizing, setResizing] = useState(false)
   const [images, setImages] = useState<AttachedImages>(persisted.images ?? {})
   const [status, setStatus] = useState<Status>('idle')
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
@@ -92,6 +99,42 @@ export default function Docdown() {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const importModeRef = useRef<'replace' | 'append'>('replace')
   const exportWrapRef = useRef<HTMLDivElement>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+
+  // Drag the drawer handle to resize; a click without movement toggles it (mirrors Deckdown).
+  function onHandlePointerDown(e: React.PointerEvent) {
+    if (e.button !== 0) return
+    const ws = workspaceRef.current
+    if (!ws) return
+    const startX = e.clientX
+    const wsLeft = ws.getBoundingClientRect().left
+    let moved = false
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) > 4) {
+        moved = true
+        setResizing(true)
+        setMdOpen(true)
+      }
+      if (moved) {
+        setDrawerWidth(Math.max(MIN_DRAWER, Math.min(MAX_DRAWER, ev.clientX - wsLeft)))
+      }
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (moved) setResizing(false)
+      else setMdOpen((o) => !o)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function onHandleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setMdOpen((o) => !o)
+    }
+  }
 
   // The edited document (HTML) is the source of truth once the user edits visually;
   // Markdown is the import starting point. `rebuildToken` remounts the editor to reseed.
@@ -147,18 +190,18 @@ export default function Docdown() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, images, docHtml, docDirty, boxes }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes }))
       } catch {
         // Document HTML / images / boxes may exceed the storage quota: keep at least the text.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdOpen, drawerWidth }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdOpen, images, docHtml, docDirty, boxes])
+  }, [markdown, fileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes])
 
   async function addImageFiles(files: File[]) {
     const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
@@ -312,11 +355,11 @@ export default function Docdown() {
         </div>
       )}
 
-      <div className="workspace">
-        <aside className={`md-drawer${mdOpen ? ' open' : ''}`} style={{ width: mdOpen ? 360 : 0 }}>
+      <div className={`workspace${resizing ? ' resizing' : ''}`} ref={workspaceRef}>
+        <aside className={`md-drawer${mdOpen ? ' open' : ''}`} style={{ width: mdOpen ? drawerWidth : 0 }}>
           <div
             className="md-inner"
-            style={{ width: 360 }}
+            style={{ width: drawerWidth }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault()
@@ -410,10 +453,11 @@ export default function Docdown() {
         </aside>
 
         <button
-          className="md-handle toggle"
-          onClick={() => setMdOpen((o) => !o)}
+          className="md-handle"
+          onPointerDown={onHandlePointerDown}
+          onKeyDown={onHandleKeyDown}
           aria-expanded={mdOpen}
-          title={mdOpen ? 'Markdown を閉じる' : 'Markdown を開く'}
+          title={mdOpen ? 'ドラッグで幅を調整 / クリックで閉じる' : 'クリックで開く（ドラッグで幅調整）'}
         >
           <span className="md-handle-text">Markdown</span>
           <span className="md-handle-arrow" aria-hidden>
