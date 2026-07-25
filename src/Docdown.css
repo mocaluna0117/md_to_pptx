@@ -467,6 +467,17 @@ body.doc-box-gesture * {
   color: var(--text-dim);
 }
 
+/* Header text (文書設定) previewed at the sheet's top-right, inside the padding zone. */
+.doc-header-preview {
+  position: absolute;
+  top: 20px;
+  right: 64px;
+  z-index: 5;
+  pointer-events: none;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 /* Smart-alignment guide lines shown while dragging a box. */
 .doc-guide {
   position: absolute;
@@ -548,6 +559,13 @@ body.doc-box-gesture * {
   .doc-box-layer {
     position: absolute !important;
     inset: 0 !important;
+  }
+
+  /* position:fixed repeats on every printed page — a poor man's running header. */
+  .doc-header-preview {
+    position: fixed !important;
+    top: 2mm !important;
+    right: 0 !important;
   }
   /* Boxes: keep the text, drop the editor chrome. */
   .doc-box {

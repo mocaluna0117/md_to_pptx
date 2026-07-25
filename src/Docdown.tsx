@@ -449,7 +449,8 @@ export default function Docdown() {
                   先頭に目次を挿入
                 </label>
                 <p className="ds-note">
-                  Word 書き出しに反映されます（目次は Word で開いて F9 で更新）。本文フォントはプレビューにも反映。
+                  ヘッダーと本文フォントはプレビュー・PDF にも反映されます。用紙/余白/ページ番号/目次は
+                  Word 書き出し用です（目次は Word で開いて F9 で更新）。
                 </p>
               </div>
             )}
@@ -644,6 +645,7 @@ export default function Docdown() {
             boxes={boxes}
             onBoxesChange={setBoxes}
             onRegenerate={() => void rebuildFromMarkdown()}
+            headerText={docSettings.headerText}
           />
         </main>
       </div>

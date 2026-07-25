@@ -14,6 +14,8 @@ interface Props {
   onBoxesChange: (boxes: DocBox[]) => void
   /** Rebuild the document from the current Markdown (confirms when dirty). */
   onRegenerate: () => void
+  /** Header text (文書設定) shown at the sheet's top-right; repeats per page in print. */
+  headerText?: string
 }
 
 /** Distance (px) within which a dragged box edge/center snaps to a guide line. */
@@ -142,7 +144,7 @@ function RedoIcon() {
  * The toolbar operates on whichever editable surface (the page or a box) last held the
  * selection, tracked via `activeEditableRef`.
  */
-export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate }: Props) {
+export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate, headerText }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const savedRange = useRef<Range | null>(null)
@@ -795,6 +797,11 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
 
       <div className="doc-scroll">
         <div className="doc-page-wrap" ref={wrapRef}>
+          {headerText && (
+            <div className="doc-header-preview" aria-hidden>
+              {headerText}
+            </div>
+          )}
           <div
             ref={editorRef}
             className="doc-page doc-editable"
