@@ -104,7 +104,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const boxesRef = useRef(boxes)
   boxesRef.current = boxes
   const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number } | null>(null)
+  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; key: number } | null>(null)
 
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
@@ -116,14 +116,28 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const editingBoxIdRef = useRef(editingBoxId)
   editingBoxIdRef.current = editingBoxId
 
-  // Keyboard: Backspace/Delete removes the selected box — but never while editing
-  // text or when a form field / contentEditable has focus (mirrors Deckdown).
+  // Keyboard shortcuts, guarded so they never fire while typing in a form field
+  // or contentEditable (there the browser's native undo/editing applies):
+  // - Ctrl/⌘+Z / Ctrl+Y / ⌘+Shift+Z → undo/redo BOX operations
+  // - Backspace/Delete → remove the selected box; Escape → deselect (mirrors Deckdown)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const id = selectedBoxIdRef.current
-      if (!id || editingBoxIdRef.current) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        // Only claim the shortcut when a box step exists; otherwise let the
+        // browser's document-level undo handle the flow text.
+        if (e.shiftKey ? boxRedo() : boxUndo()) e.preventDefault()
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+        if (boxRedo()) e.preventDefault()
+        return
+      }
+
+      const id = selectedBoxIdRef.current
+      if (!id || editingBoxIdRef.current) return
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault()
         deleteBox(id)
@@ -345,19 +359,63 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
 
   // ---- Text boxes ----
 
-  function patchBox(id: string, patch: Partial<DocBox>) {
-    onBoxesChange(boxesRef.current.map((b) => (b.id === id ? { ...b, ...patch } : b)))
+  // Snapshot history for box operations (add/move/resize/edit/delete), mirroring
+  // Deckdown's undoRef/redoRef + coalesceKey model: every mutation goes through
+  // commitBoxes(), and mutations sharing a key (one drag, one edit session)
+  // collapse into a single undo step. Flow-text undo stays native (execCommand).
+  const boxUndoRef = useRef<DocBox[][]>([])
+  const boxRedoRef = useRef<DocBox[][]>([])
+  const lastKeyRef = useRef<number | null>(null)
+  const keyCounterRef = useRef(0)
+  const editSessionKeyRef = useRef<number | null>(null)
+
+  function commitBoxes(next: DocBox[], coalesceKey?: number) {
+    const sameBurst = coalesceKey != null && coalesceKey === lastKeyRef.current
+    if (!sameBurst) {
+      boxUndoRef.current.push(boxesRef.current)
+      if (boxUndoRef.current.length > 100) boxUndoRef.current.shift()
+      boxRedoRef.current = []
+    }
+    lastKeyRef.current = coalesceKey ?? null
+    onBoxesChange(next)
+  }
+
+  /** Undo the last box operation. Returns false when there is nothing to undo. */
+  function boxUndo(): boolean {
+    const prev = boxUndoRef.current.pop()
+    if (!prev) return false
+    boxRedoRef.current.push(boxesRef.current)
+    lastKeyRef.current = null
+    onBoxesChange(prev)
+    if (selectedBoxIdRef.current && !prev.some((b) => b.id === selectedBoxIdRef.current)) setSelectedBoxId(null)
+    if (editingBoxIdRef.current && !prev.some((b) => b.id === editingBoxIdRef.current)) setEditingBoxId(null)
+    return true
+  }
+
+  function boxRedo(): boolean {
+    const next = boxRedoRef.current.pop()
+    if (!next) return false
+    boxUndoRef.current.push(boxesRef.current)
+    lastKeyRef.current = null
+    onBoxesChange(next)
+    if (selectedBoxIdRef.current && !next.some((b) => b.id === selectedBoxIdRef.current)) setSelectedBoxId(null)
+    if (editingBoxIdRef.current && !next.some((b) => b.id === editingBoxIdRef.current)) setEditingBoxId(null)
+    return true
+  }
+
+  function patchBox(id: string, patch: Partial<DocBox>, coalesceKey?: number) {
+    commitBoxes(boxesRef.current.map((b) => (b.id === id ? { ...b, ...patch } : b)), coalesceKey)
   }
 
   function addBox() {
     const box = newDocBox()
-    onBoxesChange([...boxesRef.current, box])
+    commitBoxes([...boxesRef.current, box])
     setSelectedBoxId(box.id)
     setEditingBoxId(null)
   }
 
   function deleteBox(id: string) {
-    onBoxesChange(boxesRef.current.filter((b) => b.id !== id))
+    commitBoxes(boxesRef.current.filter((b) => b.id !== id))
     if (selectedBoxId === id) setSelectedBoxId(null)
     if (editingBoxId === id) setEditingBoxId(null)
   }
@@ -371,8 +429,21 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     // Drop focus from the page/box editable so a later Backspace deletes this box
     // instead of editing the previously focused text.
     ;(document.activeElement as HTMLElement | null)?.blur?.()
+    // Suppress native selection for the whole gesture: a selection-drag anchored in
+    // the flow editable would FOCUS it on pointerup, misrouting the next Ctrl+Z.
+    document.body.classList.add('doc-box-gesture')
     setSelectedBoxId(box.id)
-    dragRef.current = { mode, id: box.id, sx: e.clientX, sy: e.clientY, ox: box.x, oy: box.y, ow: box.w, oh: box.h }
+    dragRef.current = {
+      mode,
+      id: box.id,
+      sx: e.clientX,
+      sy: e.clientY,
+      ox: box.x,
+      oy: box.y,
+      ow: box.w,
+      oh: box.h,
+      key: (keyCounterRef.current += 1), // one drag = one undo step
+    }
     window.addEventListener('pointermove', onGestureMove)
     window.addEventListener('pointerup', onGestureUp)
   }
@@ -382,15 +453,44 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const dx = e.clientX - d.sx
     const dy = e.clientY - d.sy
     if (d.mode === 'move') {
-      patchBox(d.id, { x: Math.max(0, Math.round(d.ox + dx)), y: Math.max(0, Math.round(d.oy + dy)) })
+      patchBox(d.id, { x: Math.max(0, Math.round(d.ox + dx)), y: Math.max(0, Math.round(d.oy + dy)) }, d.key)
     } else {
-      patchBox(d.id, { w: Math.max(60, Math.round(d.ow + dx)), h: Math.max(36, Math.round(d.oh + dy)) })
+      patchBox(d.id, { w: Math.max(60, Math.round(d.ow + dx)), h: Math.max(36, Math.round(d.oh + dy)) }, d.key)
     }
   }
   function onGestureUp() {
     dragRef.current = null
+    document.body.classList.remove('doc-box-gesture')
+    // Belt and braces: drop any stray selection so focus stays off the editables.
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0 && (document.activeElement as HTMLElement | null)?.isContentEditable) {
+      sel.removeAllRanges()
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+    }
     window.removeEventListener('pointermove', onGestureMove)
     window.removeEventListener('pointerup', onGestureUp)
+  }
+
+  /**
+   * Toolbar undo/redo, routed like the keyboard shortcut: text typed in an
+   * editable uses the browser's native undo; otherwise box operations undo first,
+   * falling back to native undo when the box history is empty.
+   */
+  function doUndo() {
+    const ae = document.activeElement as HTMLElement | null
+    if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+      exec('undo')
+      return
+    }
+    if (!boxUndo()) exec('undo')
+  }
+  function doRedo() {
+    const ae = document.activeElement as HTMLElement | null
+    if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+      exec('redo')
+      return
+    }
+    if (!boxRedo()) exec('redo')
   }
 
   const btn = (label: React.ReactNode, title: string, onClick: () => void, isActive = false, extraClass = '') => (
@@ -411,8 +511,8 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     <div className="doc-editor">
       <div className="doc-editor-toolbar" role="toolbar" aria-label="書式">
         <div className="det-group">
-          {btn(<UndoIcon />, '元に戻す (Ctrl+Z)', () => exec('undo'))}
-          {btn(<RedoIcon />, 'やり直し (Ctrl+Y)', () => exec('redo'))}
+          {btn(<UndoIcon />, '元に戻す (Ctrl+Z)', doUndo)}
+          {btn(<RedoIcon />, 'やり直し (Ctrl+Y)', doRedo)}
         </div>
 
         <div className="det-group">
@@ -544,14 +644,17 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
                 onStartMove={(e) => startBoxGesture(e, box, 'move')}
                 onStartResize={(e) => startBoxGesture(e, box, 'resize')}
                 onEdit={() => {
+                  // One editing session = one undo step (typing inside still has native undo).
+                  editSessionKeyRef.current = keyCounterRef.current += 1
                   setSelectedBoxId(box.id)
                   setEditingBoxId(box.id)
                 }}
                 onStopEdit={(nextHtml) => {
-                  patchBox(box.id, { html: nextHtml })
+                  patchBox(box.id, { html: nextHtml }, editSessionKeyRef.current ?? undefined)
                   setEditingBoxId(null)
+                  editSessionKeyRef.current = null
                 }}
-                onChangeHtml={(nextHtml) => patchBox(box.id, { html: nextHtml })}
+                onChangeHtml={(nextHtml) => patchBox(box.id, { html: nextHtml }, editSessionKeyRef.current ?? undefined)}
                 onDelete={() => deleteBox(box.id)}
                 registerBody={(el) => {
                   if (el) boxBodyRefs.current.set(box.id, el)

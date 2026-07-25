@@ -363,6 +363,14 @@
   user-select: none;
 }
 
+/* While dragging/resizing a box, suppress selection everywhere: a native
+   selection-drag would anchor in the flow editable and focus it on pointerup,
+   sending the next Ctrl+Z to native undo instead of the box history. */
+body.doc-box-gesture,
+body.doc-box-gesture * {
+  user-select: none !important;
+}
+
 .doc-box-del {
   position: absolute;
   top: -11px;
