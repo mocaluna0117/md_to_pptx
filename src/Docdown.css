@@ -304,9 +304,12 @@
 }
 
 /* ---- Floating text boxes ---- */
+/* Fixed width (not max-width): box coordinates are pixels relative to this sheet,
+   so its geometry must never depend on the window size — and print reuses the
+   exact same 760px layout so boxes land where they were placed. */
 .doc-page-wrap {
   position: relative;
-  max-width: 760px;
+  width: 760px;
   margin: 0 auto;
 }
 .doc-page-wrap > .doc-page {
@@ -420,22 +423,27 @@
     background: #fff !important;
   }
 
-  /* Keep relative so the absolute box layer anchors to the page. */
+  /* Keep the EXACT on-screen geometry (760px sheet incl. its padding) so the
+     absolutely-positioned boxes line up with the text just like in the editor,
+     then scale everything uniformly to the printable width. zoom (not transform)
+     participates in layout, so pagination still works.
+     A4 210mm − 2×8mm margins = 194mm ≈ 733.2px; 733.2 / 760 ≈ 0.9647. */
   .doc-page-wrap {
     position: relative !important;
     display: block !important;
     overflow: visible !important;
     height: auto !important;
-    max-width: none !important;
+    width: 760px !important;
     margin: 0 !important;
     padding: 0 !important;
+    zoom: 0.9647;
   }
 
+  /* Strip decorations only — the sheet's padding must stay, box coords assume it. */
   .doc-page {
     width: auto !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 0 !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
@@ -459,6 +467,7 @@
 
   @page {
     size: A4;
-    margin: 16mm;
+    /* Small page margin: the sheet brings its own 56/64px padding (scaled). */
+    margin: 8mm;
   }
 }
