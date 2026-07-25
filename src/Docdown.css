@@ -536,6 +536,30 @@ body.doc-box-gesture * {
   display: none;
 }
 
+/* ---- Word-like page view (pagination spacers) ---- */
+/* A spacer fills the rest of the current page, then draws the gap between two
+   page sheets (bleeding across the sheet's 64px side padding). Not editable,
+   never exported, collapses to a forced page break in print. */
+.page-spacer {
+  user-select: none;
+}
+.psp-gap {
+  height: 36px;
+  margin: 0 -64px;
+  background: var(--bg);
+  border-top: 1px solid #e2e5ea;
+  border-bottom: 1px solid #e2e5ea;
+  box-shadow:
+    inset 0 10px 8px -8px rgba(0, 0, 0, 0.28),
+    inset 0 -10px 8px -8px rgba(0, 0, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* Smart-alignment guide lines shown while dragging a box. */
 .doc-guide {
   position: absolute;
@@ -645,6 +669,22 @@ body.doc-box-gesture * {
     display: block !important;
     height: 0;
     break-after: page;
+  }
+
+  /* Pagination spacers collapse into forced page breaks, so the printed PDF
+     paginates exactly where the preview shows the page gaps. */
+  .page-spacer .psp-fill,
+  .page-spacer .psp-gap {
+    display: none !important;
+  }
+  .page-spacer {
+    display: block !important;
+    height: 0 !important;
+    break-after: page;
+  }
+  /* The last-page filler must not add a trailing blank page. */
+  .doc-page {
+    min-height: 0 !important;
   }
   /* Boxes: keep the text, drop the editor chrome. */
   .doc-box {

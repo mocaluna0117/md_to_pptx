@@ -20,7 +20,20 @@ interface Props {
   tocEnabled?: boolean
   /** Show the page-number indicator at the sheet's bottom center. */
   pageNumbers?: boolean
+  /** Word-like page view: split the sheet visually at computed page boundaries. */
+  pageView: boolean
+  onPageViewChange: (v: boolean) => void
+  /** Changes when something outside the DOM affects layout (e.g. the body font). */
+  reflowKey?: string
 }
+
+/**
+ * Flow height of one printed A4 page, in sheet pixels: 281mm printable
+ * (297 − 2×8mm @page margins) at the print scale of 0.9647 (194mm / 760px),
+ * minus a small safety margin — a chunk that exactly fills the paper height
+ * can spill a line over sub-pixel rounding, forcing blank extra pages.
+ */
+const PAGE_CONTENT_H = Math.floor((281 * 96) / 25.4 / 0.9647) - 24
 
 /** Distance (px) within which a dragged box edge/center snaps to a guide line. */
 const SNAP_PX = 6
@@ -148,7 +161,7 @@ function RedoIcon() {
  * The toolbar operates on whichever editable surface (the page or a box) last held the
  * selection, tracked via `activeEditableRef`.
  */
-export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate, headerText, tocEnabled, pageNumbers }: Props) {
+export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate, headerText, tocEnabled, pageNumbers, pageView, onPageViewChange, reflowKey }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const savedRange = useRef<Range | null>(null)
@@ -218,6 +231,105 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ---- Word-like page view -------------------------------------------------
+  // The sheet stays ONE contentEditable; non-editable spacer elements are inserted
+  // at computed page boundaries so blocks visually start on the next page. Spacers
+  // are stripped from every emitted/exported HTML, and in print they collapse to a
+  // forced page break — so the PDF paginates exactly like the preview.
+
+  /** The editable's HTML without the pagination spacers (what we persist/export). */
+  function cleanFlowHtml(el: HTMLElement): string {
+    const clone = el.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('.page-spacer').forEach((n) => n.remove())
+    return clone.innerHTML
+  }
+
+  const paginate = () => {
+    const el = editorRef.current
+    if (!el) return
+    el.querySelectorAll(':scope > .page-spacer').forEach((n) => n.remove())
+    if (!pageView) {
+      el.style.minHeight = ''
+      return
+    }
+    let pageNo = 1
+    let limit = PAGE_CONTENT_H
+    const kids = el.children // live collection
+    let i = 0
+    while (i < kids.length) {
+      const child = kids[i] as HTMLElement
+      const top = child.offsetTop
+      const h = child.offsetHeight
+      const bottom = top + h
+      if (bottom <= limit) {
+        i += 1
+        continue
+      }
+      if (h <= PAGE_CONTENT_H) {
+        // First block of the next page — either straddling the boundary, or already
+        // past it because of inter-block margins. Insert the page gap before it.
+        pageNo += 1
+        const spacer = document.createElement('div')
+        spacer.className = 'page-spacer'
+        spacer.setAttribute('contenteditable', 'false')
+        spacer.innerHTML =
+          `<div class="psp-fill" style="height:${Math.max(0, limit - top)}px"></div>` +
+          `<div class="psp-gap"><span>${pageNo} ページ</span></div>`
+        el.insertBefore(spacer, child)
+        // Fresh measure: the new page starts where the pushed block now sits.
+        limit = (kids[i + 1] as HTMLElement).offsetTop + PAGE_CONTENT_H
+        i += 2 // past spacer + pushed block
+        continue
+      }
+      // Taller than a full page: leave it (it prints sliced, like Word slices
+      // very long content) and advance whole pages until the boundary clears it.
+      while (limit < bottom) {
+        limit += PAGE_CONTENT_H
+        pageNo += 1
+      }
+      i += 1
+    }
+    // Fill the last page so the sheet ends on a full-page edge.
+    el.style.minHeight = `${limit}px`
+  }
+  const paginateRef = useRef(paginate)
+  paginateRef.current = paginate
+
+  // Re-paginate on edits (MutationObserver), image loads, and layout-affecting props.
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    let timer: number | null = null
+    const schedule = () => {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(() => paginateRef.current(), 250)
+    }
+    const isSpacer = (n: Node) => n instanceof HTMLElement && n.classList.contains('page-spacer')
+    const mo = new MutationObserver((muts) => {
+      // Ignore our own spacer inserts/removals or the loop never settles.
+      const external = muts.some(
+        (m) =>
+          !(
+            [...m.addedNodes, ...m.removedNodes].every(isSpacer) &&
+            m.addedNodes.length + m.removedNodes.length > 0
+          ) && !(m.target instanceof HTMLElement && m.target.closest('.page-spacer')),
+      )
+      if (external) schedule()
+    })
+    mo.observe(el, { childList: true, characterData: true, subtree: true })
+    const onImgLoad = (e: Event) => {
+      if ((e.target as HTMLElement)?.tagName === 'IMG') schedule()
+    }
+    el.addEventListener('load', onImgLoad, true)
+    paginateRef.current()
+    return () => {
+      mo.disconnect()
+      el.removeEventListener('load', onImgLoad, true)
+      if (timer) window.clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageView, reflowKey])
 
   // Live TOC entries (heading levels 1–3), kept in sync with the editable DOM.
   const [tocItems, setTocItems] = useState<{ level: number; text: string }[]>([])
@@ -344,7 +456,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const surface = activeEditableRef.current
     if (!surface) return
     if (surface.classList.contains('doc-editable')) {
-      onChange(surface.innerHTML)
+      onChange(cleanFlowHtml(surface))
     } else {
       const id = surface.dataset.boxId
       if (id) patchBox(id, { html: surface.innerHTML })
@@ -354,7 +466,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   function emitFlowSoon() {
     if (emitTimer.current) window.clearTimeout(emitTimer.current)
     emitTimer.current = window.setTimeout(() => {
-      if (editorRef.current) onChange(editorRef.current.innerHTML)
+      if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
     }, 250)
   }
 
@@ -821,6 +933,13 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         </div>
 
         <div className="det-group det-grow">
+          {btn(
+            'ページ区切り',
+            'Word のようにページごとに区切って表示（印刷 PDF も同じ位置で改ページ）',
+            () => onPageViewChange(!pageView),
+            pageView,
+            'det-box-add',
+          )}
           {btn('Markdownから作り直す', '現在のMarkdownから文書を作り直す（編集内容は破棄）', onRegenerate, false, 'det-box-add')}
         </div>
       </div>
@@ -861,7 +980,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
             spellCheck={false}
             onInput={emitFlowSoon}
             onBlur={() => {
-              if (editorRef.current) onChange(editorRef.current.innerHTML)
+              if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
             }}
             onMouseDown={() => setSelectedBoxId(null)}
           />

@@ -63,6 +63,7 @@ interface Persisted {
   drawerWidth?: number
   mdFileName?: string
   docSettings?: DocSettings
+  pageView?: boolean
 }
 
 /** Preview font stacks for the exportable font names. */
@@ -123,6 +124,7 @@ export default function Docdown() {
   const [status, setStatus] = useState<Status>('idle')
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [docSettings, setDocSettings] = useState<DocSettings>(persisted.docSettings ?? {})
+  const [pageView, setPageView] = useState<boolean>(persisted.pageView ?? true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsWrapRef = useRef<HTMLDivElement>(null)
   const patchSettings = (patch: Partial<DocSettings>) => setDocSettings((s) => ({ ...s, ...patch }))
@@ -263,18 +265,18 @@ export default function Docdown() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes, docSettings }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes, docSettings, pageView }))
       } catch {
         // Document HTML / images / boxes may exceed the storage quota: keep at least the text.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, docSettings }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, docSettings, pageView }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes, docSettings])
+  }, [markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes, docSettings, pageView])
 
   async function addImageFiles(files: File[]) {
     const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
@@ -649,6 +651,9 @@ export default function Docdown() {
             headerText={docSettings.headerText}
             tocEnabled={!!docSettings.toc}
             pageNumbers={!!docSettings.pageNumbers}
+            pageView={pageView}
+            onPageViewChange={setPageView}
+            reflowKey={docSettings.font ?? ''}
           />
         </main>
       </div>
