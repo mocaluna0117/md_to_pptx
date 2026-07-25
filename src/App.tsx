@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { navigate } from './Root'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
+import { copyText } from './lib/clipboard'
 import { exportDeckToPptx } from './lib/exportDeck'
 import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
@@ -89,31 +90,6 @@ function mergeMarkdown(base: string, add: string): string {
 }
 
 /** Copy text to the clipboard, falling back to execCommand when the async API is unavailable. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    /* fall through to the legacy path */
-  }
-  try {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.focus()
-    ta.select()
-    const ok = document.execCommand('copy')
-    document.body.removeChild(ta)
-    return ok
-  } catch {
-    return false
-  }
-}
-
 /** A prompt users can hand to an AI (ChatGPT etc.) to generate slide-ready Markdown. */
 const AI_PROMPT = `次の内容をプレゼン用スライドにまとめて、Marp 記法の Markdown（.md）で出力してください。
 
@@ -646,6 +622,7 @@ function App() {
               onRedo={redo}
               canUndo={undoRef.current.length > 0}
               canRedo={redoRef.current.length > 0}
+              images={images}
             />
           ) : (
             <div className="stage-loading">スライドを生成中…</div>

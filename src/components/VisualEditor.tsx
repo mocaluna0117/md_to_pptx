@@ -7,8 +7,9 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { SLIDE_W, SLIDE_H, newBox, newSlide, newTable, tableColFractions, tableRowFractions, type Box, type Deck, type Slide, type TableEl } from '../lib/deck'
+import { SLIDE_W, SLIDE_H, boxLineHeight, genId, newBox, newSlide, newTable, tableColFractions, tableRowFractions, type Box, type Deck, type ImageEl, type Slide, type TableEl } from '../lib/deck'
 import { runsToHtml, htmlToRuns } from '../lib/richText'
+import type { AttachedImages } from '../lib/imageAttach'
 
 /** Anything positioned on a slide (a text box, an image, or a table). */
 interface Rect {
@@ -28,7 +29,11 @@ interface Props {
   onRedo: () => void
   canUndo: boolean
   canRedo: boolean
+  /** Attached images (basename → data URI) offered by the insert-image menu. */
+  images: AttachedImages
 }
+
+const LINE_HEIGHT_OPTIONS = [1.0, 1.15, 1.3, 1.45, 1.6, 1.8, 2.0]
 
 const SWATCHES = ['000000', 'E03131', '1971C2', '2F9E44', 'F08C00', '7048E8', '868E96', 'FFFFFF']
 
@@ -119,7 +124,7 @@ function snapMove(x: number, y: number, w: number, h: number, others: SnapRect[]
   return { x: x + sx.delta, y: y + sy.delta, v: sx.guide, h: sy.guide }
 }
 
-export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onRedo, canUndo, canRedo }: Props) {
+export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onRedo, canUndo, canRedo, images }: Props) {
   const [si, setSi] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -128,6 +133,18 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   const [ppi, setPpi] = useState(88) // pixels per inch of the stage
   // Smart-guide lines shown while dragging (positions in inches, or null).
   const [guides, setGuides] = useState<{ v: number | null; h: number | null }>({ v: null, h: null })
+  const [imgMenuOpen, setImgMenuOpen] = useState(false)
+  const imgWrapRef = useRef<HTMLDivElement>(null)
+
+  // Close the insert-image menu on an outside click.
+  useEffect(() => {
+    if (!imgMenuOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!imgWrapRef.current?.contains(e.target as Node)) setImgMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [imgMenuOpen])
 
   const stageRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
@@ -393,6 +410,69 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     commit(deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, tables: [...(s.tables ?? []), table] })))
     setSelectedId(table.id)
   }
+
+  /** Insert an attached image onto the current slide, preserving its aspect ratio. */
+  function insertImage(src: string) {
+    setImgMenuOpen(false)
+    const probe = new Image()
+    probe.onload = () => addImageEl(src, probe.naturalWidth || 4, probe.naturalHeight || 3)
+    probe.onerror = () => addImageEl(src, 4, 3)
+    probe.src = src
+  }
+  function addImageEl(src: string, nw: number, nh: number) {
+    const ratio = nh / nw
+    let w = 4
+    let h = 4 * ratio
+    if (h > SLIDE_H - 1) {
+      h = SLIDE_H - 1
+      w = h / ratio
+    }
+    if (w > SLIDE_W - 1) {
+      w = SLIDE_W - 1
+      h = w * ratio
+    }
+    const im: ImageEl = { id: genId(), x: (SLIDE_W - w) / 2, y: (SLIDE_H - h) / 2, w, h, src }
+    // The async onload must not commit against a stale render-scope deck.
+    const d = deckRef.current
+    const si = siRef.current
+    commit(d.slides.map((s, i) => (i !== si ? s : { ...s, images: [...(s.images ?? []), im] })))
+    setSelectedId(im.id)
+  }
+
+  // ---- Table rows/columns (append/remove at the end; header row 0 stays put) ----
+
+  function tableCols(tb: TableEl): number {
+    return Math.max(1, ...tb.rows.map((r) => r.length))
+  }
+  function addTableRow(tb: TableEl) {
+    setEditingCell(null)
+    const cols = tableCols(tb)
+    const fr = tableRowFractions(tb)
+    // Appending 1/n to the normalized fractions keeps existing proportions
+    // (normFractions re-normalizes on read).
+    patchTable(tb.id, { rows: [...tb.rows, Array(cols).fill('')], rowFr: [...fr, 1 / fr.length] })
+  }
+  function deleteTableRow(tb: TableEl) {
+    if (tb.rows.length <= 1) return
+    setEditingCell(null)
+    const rowFr = tb.rowFr && tb.rowFr.length === tb.rows.length ? tb.rowFr.slice(0, -1) : undefined
+    patchTable(tb.id, { rows: tb.rows.slice(0, -1), rowFr })
+  }
+  function addTableCol(tb: TableEl) {
+    setEditingCell(null)
+    const cols = tableCols(tb)
+    const rows = tb.rows.map((r) => [...r, ...Array(cols - r.length).fill(''), ''])
+    const fr = tableColFractions(tb)
+    patchTable(tb.id, { rows, colFr: [...fr, 1 / fr.length] })
+  }
+  function deleteTableCol(tb: TableEl) {
+    const cols = tableCols(tb)
+    if (cols <= 1) return
+    setEditingCell(null)
+    const rows = tb.rows.map((r) => r.slice(0, cols - 1))
+    const colFr = tb.colFr && tb.colFr.length === cols ? tb.colFr.slice(0, -1) : undefined
+    patchTable(tb.id, { rows, colFr })
+  }
   function startCellEdit(id: string, r: number, c: number) {
     if (editingId) stopEditing()
     setSelectedId(id)
@@ -456,8 +536,8 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     syncEditing()
   }
 
-  /** Toggle bold/italic on the current selection using <b>/<i> tags (read back by htmlToRuns). */
-  function applyStyle(command: 'bold' | 'italic') {
+  /** Toggle an inline style on the selection using tags (<b>/<i>/<u>/<strike>), read back by htmlToRuns. */
+  function applyStyle(command: 'bold' | 'italic' | 'underline' | 'strikeThrough') {
     const el = editRef.current
     if (!el) return
     el.focus()
@@ -555,6 +635,25 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
         <div className="vgroup">
           <button onClick={addBox} data-tip="テキストボックスを追加">＋テキストボックス</button>
           <button onClick={addTable} data-tip="表を追加">＋表</button>
+          <div className="vimg-wrap" ref={imgWrapRef}>
+            <button onClick={() => setImgMenuOpen((o) => !o)} data-tip="添付した画像をスライドに挿入" aria-haspopup="menu" aria-expanded={imgMenuOpen}>
+              🖼 画像を挿入
+            </button>
+            {imgMenuOpen && (
+              <div className="vimg-menu" role="menu">
+                {Object.keys(images).length === 0 ? (
+                  <div className="vimg-empty">左の Markdown パネルの「🖼 画像」から画像を読み込むと挿入できます</div>
+                ) : (
+                  Object.keys(images).map((name) => (
+                    <button key={name} type="button" role="menuitem" className="vimg-item" onMouseDown={(e) => e.preventDefault()} onClick={() => insertImage(images[name])}>
+                      <img src={images[name]} alt="" />
+                      <span>{name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {selectedEl && (
@@ -584,6 +683,26 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                 ))}
               </select>
             )}
+            {selectedBox && (
+              <span className="vtipwrap" data-tip="行間">
+                <select
+                  className="vfont"
+                  aria-label="行間"
+                  value={String(boxLineHeight(selectedBox))}
+                  onChange={(e) => patchBox(selectedBox.id, { lineHeight: Number(e.target.value) })}
+                >
+                  {/* A pre box defaults to 1.25, which isn't in the list — keep it selectable. */}
+                  {!LINE_HEIGHT_OPTIONS.includes(boxLineHeight(selectedBox)) && (
+                    <option value={String(boxLineHeight(selectedBox))}>行間 {boxLineHeight(selectedBox)}</option>
+                  )}
+                  {LINE_HEIGHT_OPTIONS.map((v) => (
+                    <option key={v} value={String(v)}>
+                      行間 {v.toFixed(2).replace(/0$/, '').replace(/\.$/, '')}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            )}
             {selectedBox &&
               (['left', 'center', 'right'] as const).map((a) => (
                 <button
@@ -597,6 +716,32 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
                   <AlignIcon dir={a} />
                 </button>
               ))}
+            {selectedTable && (
+              <>
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => addTableRow(selectedTable)} data-tip="行を追加（末尾）">
+                  ＋行
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => deleteTableRow(selectedTable)}
+                  disabled={selectedTable.rows.length <= 1}
+                  data-tip="末尾の行を削除"
+                >
+                  −行
+                </button>
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => addTableCol(selectedTable)} data-tip="列を追加（右端）">
+                  ＋列
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => deleteTableCol(selectedTable)}
+                  disabled={tableCols(selectedTable) <= 1}
+                  data-tip="右端の列を削除"
+                >
+                  −列
+                </button>
+              </>
+            )}
             <button
               onClick={deleteSelected}
               data-tip={`選択している${selectedKind}を削除（Backspace / Delete でも削除できます）`}
@@ -625,6 +770,24 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               aria-label="斜体"
             >
               <i>I</i>
+            </button>
+            <button
+              className="vstyle"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyStyle('underline')}
+              data-tip="下線（選択した文字）"
+              aria-label="下線"
+            >
+              <u>U</u>
+            </button>
+            <button
+              className="vstyle"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyStyle('strikeThrough')}
+              data-tip="取り消し線（選択した文字）"
+              aria-label="取り消し線"
+            >
+              <s>S</s>
             </button>
           </div>
         )}
@@ -781,6 +944,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               textAlign: box.align,
               color: box.color ? `#${box.color}` : undefined,
               fontFamily: box.fontFamily || undefined,
+              lineHeight: boxLineHeight(box),
             }
             if (editingId === box.id) {
               return (
@@ -870,6 +1034,7 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
               textAlign: box.align,
               color: box.color ? `#${box.color}` : undefined,
               fontFamily: box.fontFamily || undefined,
+              lineHeight: boxLineHeight(box),
             }}
             dangerouslySetInnerHTML={{ __html: runsToHtml(box.runs, ppi) }}
           />

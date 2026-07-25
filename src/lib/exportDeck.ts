@@ -1,5 +1,5 @@
 import PptxGen from 'pptxgenjs'
-import { SLIDE_W, SLIDE_H, tableColFractions, tableRowFractions, type Box, type Deck, type TextRun } from './deck'
+import { SLIDE_W, SLIDE_H, boxLineHeight, tableColFractions, tableRowFractions, type Box, type Deck, type TextRun } from './deck'
 
 export interface ExportOptions {
   fileName?: string
@@ -40,6 +40,9 @@ export async function exportDeckToPptx(deck: Deck, options: ExportOptions = {}):
         align: box.align,
         valign: 'top',
         fontFace: box.fontFamily || 'Arial',
+        // A PowerPoint "single" line is ≈1.2 × font size while CSS line-height k is
+        // k × font size, so multiple k/1.2 matches the on-screen spacing.
+        lineSpacingMultiple: boxLineHeight(box) / 1.2,
       })
     }
     for (const tb of slide.tables ?? []) {
@@ -89,6 +92,9 @@ function runsToTextProps(runs: Box['runs']): PptxGen.TextProps[] {
     options: {
       bold: p.run.bold,
       italic: p.run.italic,
+      // pptxgenjs v4 types accept only the object form for underline.
+      underline: p.run.underline ? { style: 'sng' } : undefined,
+      strike: p.run.strike || undefined,
       color: p.run.color || undefined,
       fontSize: p.run.fontSize || undefined,
       fontFace: p.run.code ? 'Courier New' : undefined,

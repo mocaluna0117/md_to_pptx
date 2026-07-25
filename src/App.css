@@ -830,6 +830,61 @@
   gap: 6px;
 }
 
+/* Insert-image dropdown (ported from Docdown's det-img-menu). */
+.vimg-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.vimg-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.vimg-empty {
+  padding: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.vimg-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  border: none !important;
+  border-radius: 6px;
+  background: none !important;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.vimg-item:hover {
+  background: var(--panel-2) !important;
+}
+.vimg-item img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+.vimg-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vgroup.vgrow {
   margin-left: auto;
 }

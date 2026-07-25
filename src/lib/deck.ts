@@ -10,6 +10,8 @@ export interface TextRun {
   text: string
   bold?: boolean
   italic?: boolean
+  underline?: boolean
+  strike?: boolean
   code?: boolean
   color?: string
   /** Per-run font size in points; falls back to the box's fontSize when unset. */
@@ -31,7 +33,14 @@ export interface Box {
   fontFamily?: string
   /** Preformatted (code block): preserve whitespace, monospace, no wrapping. */
   pre?: boolean
+  /** Line spacing as a unitless line-height multiplier; see boxLineHeight(). */
+  lineHeight?: number
   runs: TextRun[]
+}
+
+/** Effective line-height multiplier of a box (defaults match the .vbox CSS). */
+export function boxLineHeight(box: Box): number {
+  return box.lineHeight ?? (box.pre ? 1.25 : 1.3)
 }
 
 /** An image placed on a slide. `src` is a data URI or URL. */

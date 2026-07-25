@@ -11,6 +11,8 @@ export function runsToHtml(runs: TextRun[], ppi: number): string {
     .map((r) => {
       let html = escapeHtml(r.text).replace(/\n/g, '<br>')
       if (r.code) html = `<code>${html}</code>`
+      if (r.strike) html = `<s>${html}</s>`
+      if (r.underline) html = `<u>${html}</u>`
       if (r.italic) html = `<i>${html}</i>`
       if (r.bold) html = `<b>${html}</b>`
       if (r.color || r.fontSize) {
@@ -31,6 +33,8 @@ export function runsToHtml(runs: TextRun[], ppi: number): string {
 interface Ctx {
   bold?: boolean
   italic?: boolean
+  underline?: boolean
+  strike?: boolean
   code?: boolean
   color?: string
   fontSize?: number
@@ -71,6 +75,12 @@ function walk(node: Node, ctx: Ctx, runs: TextRun[]): void {
     const next: Ctx = { ...ctx }
     if (tag === 'B' || tag === 'STRONG') next.bold = true
     if (tag === 'I' || tag === 'EM') next.italic = true
+    if (tag === 'U' || tag === 'INS') next.underline = true
+    if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') next.strike = true
+    // CSS fallback: some engines emit text-decoration styles instead of tags.
+    const deco = el.style?.textDecorationLine || el.style?.textDecoration || ''
+    if (deco.includes('underline')) next.underline = true
+    if (deco.includes('line-through')) next.strike = true
     if (tag === 'CODE') next.code = true
     const color = colorOf(el)
     if (color) next.color = color
@@ -93,7 +103,16 @@ function colorOf(el: HTMLElement): string | undefined {
 
 function push(runs: TextRun[], text: string, ctx: Ctx): void {
   if (!text) return
-  runs.push({ text, bold: ctx.bold, italic: ctx.italic, code: ctx.code, color: ctx.color, fontSize: ctx.fontSize })
+  runs.push({
+    text,
+    bold: ctx.bold,
+    italic: ctx.italic,
+    underline: ctx.underline,
+    strike: ctx.strike,
+    code: ctx.code,
+    color: ctx.color,
+    fontSize: ctx.fontSize,
+  })
 }
 
 function merge(runs: TextRun[]): TextRun[] {
@@ -104,6 +123,8 @@ function merge(runs: TextRun[]): TextRun[] {
       prev &&
       !!prev.bold === !!r.bold &&
       !!prev.italic === !!r.italic &&
+      !!prev.underline === !!r.underline &&
+      !!prev.strike === !!r.strike &&
       !!prev.code === !!r.code &&
       prev.color === r.color &&
       prev.fontSize === r.fontSize

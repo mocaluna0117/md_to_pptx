@@ -1,6 +1,6 @@
 import * as htmlToImage from 'html-to-image'
 import { renderSlides } from './marp'
-import { SLIDE_W, SLIDE_H, tableColFractions, tableRowFractions, type Deck, type Slide, type TableEl } from './deck'
+import { SLIDE_W, SLIDE_H, boxLineHeight, tableColFractions, tableRowFractions, type Deck, type Slide, type TableEl } from './deck'
 import { runsToHtml } from './richText'
 
 export interface PngSlide {
@@ -137,7 +137,7 @@ export function fillSlideElement(slide: HTMLElement, s: Slide): void {
     el.style.cssText =
       pos(box) +
       `overflow:hidden;padding:4px 6px;box-sizing:border-box;word-break:break-word;` +
-      `white-space:${box.pre ? 'pre' : 'pre-wrap'};line-height:${box.pre ? 1.25 : 1.3};` +
+      `white-space:${box.pre ? 'pre' : 'pre-wrap'};line-height:${boxLineHeight(box)};` +
       `font-size:${(box.fontSize * PX_PER_IN) / 72}px;text-align:${box.align};font-family:${fontFamily};` +
       `color:${box.color ? `#${box.color}` : '#111'};`
     el.innerHTML = runsToHtml(box.runs, PX_PER_IN) || '&nbsp;'
