@@ -16,6 +16,10 @@ interface Props {
   onRegenerate: () => void
   /** Header text (文書設定) shown at the sheet's top-right; repeats per page in print. */
   headerText?: string
+  /** Show a live table-of-contents sheet above the document (mirrors the Word TOC). */
+  tocEnabled?: boolean
+  /** Show the page-number indicator at the sheet's bottom center. */
+  pageNumbers?: boolean
 }
 
 /** Distance (px) within which a dragged box edge/center snaps to a guide line. */
@@ -144,7 +148,7 @@ function RedoIcon() {
  * The toolbar operates on whichever editable surface (the page or a box) last held the
  * selection, tracked via `activeEditableRef`.
  */
-export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate, headerText }: Props) {
+export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate, headerText, tocEnabled, pageNumbers }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const savedRange = useRef<Range | null>(null)
@@ -214,6 +218,32 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Live TOC entries (heading levels 1–3), kept in sync with the editable DOM.
+  const [tocItems, setTocItems] = useState<{ level: number; text: string }[]>([])
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el || !tocEnabled) return
+    let timer: number | null = null
+    const refresh = () => {
+      const items = Array.from(el.querySelectorAll('h1, h2, h3')).map((h) => ({
+        level: Number(h.tagName[1]),
+        text: h.textContent?.trim() || '（無題の見出し）',
+      }))
+      setTocItems(items)
+    }
+    refresh()
+    // A MutationObserver catches every edit path (typing, execCommand, table ops).
+    const mo = new MutationObserver(() => {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(refresh, 300)
+    })
+    mo.observe(el, { childList: true, characterData: true, subtree: true })
+    return () => {
+      mo.disconnect()
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [tocEnabled])
 
   // Track the live selection (page or box) so toolbar buttons operate on the right surface.
   useEffect(() => {
@@ -796,10 +826,31 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       </div>
 
       <div className="doc-scroll">
+        {tocEnabled && (
+          <div className="doc-toc-sheet" aria-label="目次プレビュー">
+            <div className="doc-toc-title">目次</div>
+            {tocItems.length === 0 ? (
+              <p className="doc-toc-empty">見出し（h1〜h3）を追加すると項目が表示されます</p>
+            ) : (
+              tocItems.map((it, i) => (
+                <div key={i} className={`doc-toc-item lv${it.level}`}>
+                  {it.text}
+                </div>
+              ))
+            )}
+            <p className="doc-toc-note">Word ではページ番号付きの目次になります（開いて F9 で更新）</p>
+          </div>
+        )}
+        {tocEnabled && <div className="doc-print-break" aria-hidden />}
         <div className="doc-page-wrap" ref={wrapRef}>
           {headerText && (
             <div className="doc-header-preview" aria-hidden>
               {headerText}
+            </div>
+          )}
+          {pageNumbers && (
+            <div className="doc-footer-preview" aria-hidden>
+              1
             </div>
           )}
           <div

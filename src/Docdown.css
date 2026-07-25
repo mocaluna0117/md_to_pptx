@@ -478,6 +478,64 @@ body.doc-box-gesture * {
   color: #6b7280;
 }
 
+/* Page-number indicator (文書設定) at the sheet's bottom center. Word assigns the
+   real per-page numbers on export; the continuous preview has no page breaks. */
+.doc-footer-preview {
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  pointer-events: none;
+  text-align: center;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Live TOC preview: its own sheet above the document (the Word TOC also gets
+   its own page). Kept OUTSIDE .doc-page-wrap so box coordinates stay anchored
+   to the document sheet's top-left. */
+.doc-toc-sheet {
+  width: 760px;
+  margin: 0 auto 18px;
+  padding: 40px 64px;
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #1f2328;
+  border: 1px solid #e2e5ea;
+  border-radius: 4px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.28);
+  font-family: var(--doc-font, 'Calibri', 'Segoe UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', sans-serif);
+  font-size: 15px;
+  line-height: 1.9;
+}
+.doc-toc-title {
+  font-size: 1.4em;
+  font-weight: 700;
+  margin-bottom: 0.5em;
+}
+.doc-toc-item.lv1 {
+  font-weight: 600;
+}
+.doc-toc-item.lv2 {
+  padding-left: 1.5em;
+}
+.doc-toc-item.lv3 {
+  padding-left: 3em;
+  color: #4b5563;
+}
+.doc-toc-empty,
+.doc-toc-note {
+  margin: 0.6em 0 0;
+  font-size: 12px;
+  color: #9aa1ac;
+}
+
+/* Print-only page break between the TOC sheet and the document. */
+.doc-print-break {
+  display: none;
+}
+
 /* Smart-alignment guide lines shown while dragging a box. */
 .doc-guide {
   position: absolute;
@@ -566,6 +624,27 @@ body.doc-box-gesture * {
     position: fixed !important;
     top: 2mm !important;
     right: 0 !important;
+  }
+
+  /* Browsers can't number pages from CSS; hide the single indicator in print. */
+  .doc-footer-preview {
+    display: none !important;
+  }
+
+  /* The TOC prints as its own page, like the Word export (same scale as the sheet). */
+  .doc-toc-sheet {
+    width: 760px !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    zoom: 0.9647;
+  }
+  /* break-after is unreliable on zoomed elements; break on this plain block instead. */
+  .doc-print-break {
+    display: block !important;
+    height: 0;
+    break-after: page;
   }
   /* Boxes: keep the text, drop the editor chrome. */
   .doc-box {
