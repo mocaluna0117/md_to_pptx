@@ -158,7 +158,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null)
   // Smart-guide lines shown while dragging a box (positions in px, or null).
   const [guides, setGuides] = useState<{ v: number | null; h: number | null }>({ v: null, h: null })
-  const [active, setActive] = useState({ bold: false, italic: false, strike: false, underline: false, block: 'p', align: 'left', inTable: false })
+  const [active, setActive] = useState({ bold: false, italic: false, strike: false, underline: false, block: 'p', align: 'left', inTable: false, font: '' })
   const imageNames = Object.keys(images)
   const selectedBoxIdRef = useRef(selectedBoxId)
   selectedBoxIdRef.current = selectedBoxId
@@ -267,15 +267,20 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     let italic = false
     let strike = false
     let underline = false
+    let font = ''
     try {
       bold = document.queryCommandState('bold')
       italic = document.queryCommandState('italic')
       strike = document.queryCommandState('strikeThrough')
       underline = document.queryCommandState('underline')
+      // Reflect the selection's font in the toolbar select (first family, unquoted).
+      const raw = String(document.queryCommandValue('fontName') || '')
+      const first = raw.split(',')[0].replace(/['"]/g, '').trim()
+      font = FONT_OPTIONS.find((o) => o.value.toLowerCase() === first.toLowerCase())?.value ?? ''
     } catch {
       /* ignore */
     }
-    setActive({ bold, italic, strike, underline, block, align, inTable })
+    setActive({ bold, italic, strike, underline, block, align, inTable, font })
   }
 
   /**
@@ -676,11 +681,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
             <select
               className="det-select"
               aria-label="フォント"
-              defaultValue=""
+              value={active.font}
               onMouseDown={() => restore()}
               onChange={(e) => {
                 if (e.target.value) exec('fontName', e.target.value, true)
-                e.target.value = ''
               }}
             >
               {FONT_OPTIONS.map((o) => (

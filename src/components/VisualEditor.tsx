@@ -521,6 +521,34 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
     setSi(Math.max(0, Math.min(next, deck.slides.length - 2)))
   }
 
+  /** Deep-copy a slide (fresh ids throughout) and insert it right after the original. */
+  function duplicateSlideAt(index: number) {
+    const src = deck.slides[index]
+    if (!src) return
+    const clone: Slide = JSON.parse(JSON.stringify(src))
+    clone.id = genId()
+    clone.boxes.forEach((b) => (b.id = genId()))
+    clone.images?.forEach((im) => (im.id = genId()))
+    clone.tables?.forEach((t) => (t.id = genId()))
+    commit([...deck.slides.slice(0, index + 1), clone, ...deck.slides.slice(index + 1)])
+    setSelectedId(null)
+    setSi(index + 1)
+  }
+
+  // Drag & drop reordering of the slide rail.
+  const dragSlideRef = useRef<number | null>(null)
+  function dropSlideOn(target: number) {
+    const from = dragSlideRef.current
+    dragSlideRef.current = null
+    if (from == null || from === target) return
+    const slides = [...deck.slides]
+    const [moved] = slides.splice(from, 1)
+    slides.splice(target, 0, moved)
+    commit(slides)
+    setSelectedId(null)
+    setSi(target)
+  }
+
   function applyColor(hex: string) {
     const el = editRef.current
     if (!el) return
@@ -615,6 +643,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
   return (
     <div className="veditor">
       <div className="vtoolbar">
+        <div className="vtoolbar-row">
         <div className="vgroup">
           <button onClick={addSlide} data-tip="スライドを追加">＋スライド</button>
         </div>
@@ -656,6 +685,18 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
           </div>
         </div>
 
+        <div className="vgroup vgrow">
+          <button className="vregen" onClick={onRegenerate} data-tip="現在のMarkdownからスライドを作り直す（編集内容は破棄）">
+            Markdownから作り直す
+          </button>
+        </div>
+        </div>
+
+        {/* Context row: fixed-height so selecting/editing never reflows the stage below. */}
+        <div className="vtoolbar-row vtoolbar-context">
+        {!selectedEl && !editingId && (
+          <span className="vctx-hint">要素を選択すると書式ツールが表示されます（ダブルクリックで文字編集）</span>
+        )}
         {selectedEl && (
           <div className="vgroup">
             {(selectedBox || selectedTable) && (
@@ -810,10 +851,6 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
           </div>
         )}
 
-        <div className="vgroup vgrow">
-          <button className="vregen" onClick={onRegenerate} data-tip="現在のMarkdownからスライドを作り直す（編集内容は破棄）">
-            Markdownから作り直す
-          </button>
         </div>
       </div>
 
@@ -827,6 +864,9 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
               active={i === slideIndex}
               onSelect={() => selectSlide(i)}
               onDelete={deck.slides.length > 1 ? () => deleteSlideAt(i) : undefined}
+              onDuplicate={() => duplicateSlideAt(i)}
+              onDragStart={() => (dragSlideRef.current = i)}
+              onDropOn={() => dropSlideOn(i)}
             />
           ))}
           <button className="vaddslide" onClick={addSlide} title="スライドを追加">
@@ -999,14 +1039,34 @@ interface SlideThumbProps {
   active: boolean
   onSelect: () => void
   onDelete?: () => void
+  onDuplicate: () => void
+  onDragStart: () => void
+  onDropOn: () => void
 }
 
-/** Read-only miniature of a slide for the left rail. */
-function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProps) {
+/** Read-only miniature of a slide for the left rail (draggable to reorder). */
+function SlideThumb({ slide, index, active, onSelect, onDelete, onDuplicate, onDragStart, onDropOn }: SlideThumbProps) {
   const width = 150
   const ppi = width / SLIDE_W
   return (
-    <div className={`vthumb${active ? ' active' : ''}`} onClick={onSelect}>
+    <div
+      className={`vthumb${active ? ' active' : ''}`}
+      onClick={onSelect}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStart()
+      }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        onDropOn()
+      }}
+      title="ドラッグで並べ替え"
+    >
       <span className="vthumb-num">{index + 1}</span>
       <div
         className="vthumb-stage"
@@ -1066,6 +1126,16 @@ function SlideThumb({ slide, index, active, onSelect, onDelete }: SlideThumbProp
           </div>
         ))}
       </div>
+      <button
+        className="vthumb-dup"
+        onClick={(e) => {
+          e.stopPropagation()
+          onDuplicate()
+        }}
+        title="スライドを複製"
+      >
+        ⧉
+      </button>
       {onDelete && (
         <button
           className="vthumb-del"

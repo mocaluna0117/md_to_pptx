@@ -17,6 +17,8 @@
     "markdown-it": "^14.3.0",
     "markdown-it-cjk-friendly": "^2.0.2",
     "mathjax-full": "^3.2.2",
+    "mathml2omml": "^0.5.0",
+    "mermaid": "^11.16.0",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

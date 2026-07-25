@@ -5,8 +5,14 @@
  * (glyphs embedded as paths — no font dependency) and rasterized to PNG. Heights
  * are in `em` so the math scales with the surrounding text.
  */
-export async function mathToImages(markdown: string): Promise<string> {
+export interface MathOptions {
+  /** Glyph color (CSS), default near-black. Pass a light color for dark slides. */
+  color?: string
+}
+
+export async function mathToImages(markdown: string, options: MathOptions = {}): Promise<string> {
   if (!markdown.includes('$')) return markdown
+  const color = options.color ?? '#111'
 
   // Protect code so `$` inside it isn't treated as math.
   const vault: string[] = []
@@ -26,7 +32,7 @@ export async function mathToImages(markdown: string): Promise<string> {
   )
 
   if (jobs.length > 0) {
-    const tags = await Promise.all(jobs.map(({ latex, display }) => renderMathTag(latex.trim(), display)))
+    const tags = await Promise.all(jobs.map(({ latex, display }) => renderMathTag(latex.trim(), display, color)))
     src = src.replace(/@@MDMATH(\d+)@@/g, (_m, i: string) => tags[Number(i)] ?? '')
   }
 
@@ -34,15 +40,17 @@ export async function mathToImages(markdown: string): Promise<string> {
   return src.replace(/@@MDCODE(\d+)@@/g, (_m, i: string) => vault[Number(i)] ?? '')
 }
 
-async function renderMathTag(latex: string, display: boolean): Promise<string> {
-  const rendered = await renderMathPng(latex, display)
+async function renderMathTag(latex: string, display: boolean, color: string): Promise<string> {
+  const rendered = await renderMathPng(latex, display, color)
   const alt = latex.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
   if (!rendered) return display ? `<pre>${alt}</pre>` : `<code>${alt}</code>`
   const em = (rendered.height / 16).toFixed(3)
+  // data-tex carries the source LaTeX so the .docx export can emit native OMML math.
+  const meta = `alt="${alt}" data-tex="${alt}" data-display="${display ? '1' : '0'}"`
   if (display) {
-    return `<img src="${rendered.url}" alt="${alt}" style="display:block;margin:0.7em auto;max-width:100%;height:${em}em" />`
+    return `<img src="${rendered.url}" ${meta} style="display:block;margin:0.7em auto;max-width:100%;height:${em}em" />`
   }
-  return `<img src="${rendered.url}" alt="${alt}" style="vertical-align:middle;height:${em}em" />`
+  return `<img src="${rendered.url}" ${meta} style="vertical-align:middle;height:${em}em" />`
 }
 
 interface RenderedMath {
@@ -81,9 +89,47 @@ function getConverter() {
   return converter
 }
 
+// Lazily-initialized tex→MathML converter (for the .docx native-math export).
+let mmlConverter: Promise<(latex: string, display: boolean) => string> | null = null
+function getMmlConverter() {
+  if (!mmlConverter) {
+    mmlConverter = (async () => {
+      const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }, { AllPackages }, { SerializedMmlVisitor }, { STATE }] =
+        await Promise.all([
+          import('mathjax-full/js/mathjax.js'),
+          import('mathjax-full/js/input/tex.js'),
+          import('mathjax-full/js/output/svg.js'),
+          import('mathjax-full/js/adaptors/liteAdaptor.js'),
+          import('mathjax-full/js/handlers/html.js'),
+          import('mathjax-full/js/input/tex/AllPackages.js'),
+          import('mathjax-full/js/core/MmlTree/SerializedMmlVisitor.js'),
+          import('mathjax-full/js/core/MathItem.js'),
+        ])
+      const adaptor = liteAdaptor()
+      RegisterHTMLHandler(adaptor)
+      const tex = new TeX({ packages: AllPackages })
+      const out = new SVG({ fontCache: 'none' })
+      const doc = mathjax.document('', { InputJax: tex, OutputJax: out })
+      const visitor = new SerializedMmlVisitor()
+      return (latex: string, display: boolean) => {
+        // Stop the pipeline right after TeX→MathML conversion (the official tex2mml recipe).
+        const node = doc.convert(latex, { display, end: STATE.CONVERT })
+        return visitor.visitTree(node)
+      }
+    })()
+  }
+  return mmlConverter
+}
+
+/** Convert LaTeX to a serialized MathML string (used for native Word math). */
+export async function texToMathML(latex: string, display: boolean): Promise<string> {
+  const convert = await getMmlConverter()
+  return convert(latex, display)
+}
+
 /** Render one LaTeX string with MathJax (SVG) and rasterize it to a PNG data URI. */
-async function renderMathPng(latex: string, display: boolean): Promise<RenderedMath | null> {
-  const key = (display ? 'D:' : 'I:') + latex
+async function renderMathPng(latex: string, display: boolean, color: string): Promise<RenderedMath | null> {
+  const key = (display ? 'D:' : 'I:') + color + ':' + latex
   if (cache.has(key)) return cache.get(key) ?? null
 
   let svgMarkup: string
@@ -100,7 +146,7 @@ async function renderMathPng(latex: string, display: boolean): Promise<RenderedM
 
   // Resolve the SVG's ex-based size to pixels using a 16px font context.
   const holder = document.createElement('div')
-  holder.style.cssText = 'position:fixed;left:-99999px;top:0;font-size:16px;color:#111;'
+  holder.style.cssText = `position:fixed;left:-99999px;top:0;font-size:16px;color:${color};`
   holder.innerHTML = svgMarkup
   document.body.appendChild(holder)
   try {
@@ -111,7 +157,7 @@ async function renderMathPng(latex: string, display: boolean): Promise<RenderedM
     const height = Math.max(1, rect.height)
     svgEl.setAttribute('width', String(width))
     svgEl.setAttribute('height', String(height))
-    svgEl.setAttribute('style', 'color:#111')
+    svgEl.setAttribute('style', `color:${color}`)
     const serialized = new XMLSerializer().serializeToString(svgEl)
     const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized)
     const url = await svgToPng(svgUrl, width, height, 3)

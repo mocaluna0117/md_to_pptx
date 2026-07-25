@@ -2,9 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { navigate } from './Root'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
+import { mermaidToImages } from './lib/mermaid'
 import { copyText } from './lib/clipboard'
-import { exportDeckToPptx } from './lib/exportDeck'
-import { exportDeckToPdf } from './lib/exportPdf'
 import { type Deck } from './lib/deck'
 import { deckFromRenderedMarkdown } from './lib/deckFromRender'
 import VisualEditor from './components/VisualEditor'
@@ -79,6 +78,47 @@ type Status =
 /** Remove a leading YAML front-matter block (--- … ---) from Markdown, if present. */
 function stripFrontmatter(md: string): string {
   return md.replace(/^﻿?---[^\n]*\n[\s\S]*?\n---[^\n]*\n?/, '')
+}
+
+/** Marp themes bundled with Marp Core. */
+const THEMES = [
+  { value: 'default', label: 'テーマ: Default' },
+  { value: 'gaia', label: 'テーマ: Gaia' },
+  { value: 'uncover', label: 'テーマ: Uncover' },
+] as const
+
+/** Leading YAML front-matter block, split into (open, body, close). */
+const FM_RE = /^(﻿?---[^\n]*\n)([\s\S]*?)(\n---[^\n]*\n?)/
+
+/** The `theme:` directive of the front matter (Marp defaults to "default"). */
+function themeOfMarkdown(md: string): string {
+  const fm = md.match(FM_RE)
+  return fm?.[2].match(/^theme:\s*(\S+)/m)?.[1] ?? 'default'
+}
+
+/** Set (or insert) the `theme:` directive, creating the front matter if missing. */
+function setMarkdownTheme(md: string, theme: string): string {
+  const fm = md.match(FM_RE)
+  if (fm) {
+    const body = /^theme:.*$/m.test(fm[2])
+      ? fm[2].replace(/^theme:.*$/m, `theme: ${theme}`)
+      : `${fm[2]}\ntheme: ${theme}`
+    return fm[1] + body + fm[3] + md.slice(fm[0].length)
+  }
+  return `---\nmarp: true\ntheme: ${theme}\npaginate: true\n---\n\n${md}`
+}
+
+/** Math glyph color: light on decks that declare a dark look (invert class / dark bg). */
+function mathColorFor(md: string): string {
+  const fm = md.match(FM_RE)?.[2] ?? ''
+  if (/^class:.*\binvert\b/m.test(fm)) return '#eee'
+  const bg = fm.match(/^backgroundColor:\s*['"]?#?([0-9a-fA-F]{6})/m)?.[1]
+  if (bg) {
+    const lum =
+      0.2126 * parseInt(bg.slice(0, 2), 16) + 0.7152 * parseInt(bg.slice(2, 4), 16) + 0.0722 * parseInt(bg.slice(4, 6), 16)
+    if (lum < 128) return '#eee'
+  }
+  return '#111'
 }
 
 /** Merge an imported Markdown into the current one as extra slides (own front-matter dropped). */
@@ -275,7 +315,8 @@ function App() {
 
   /** Build the deck from Markdown (rendered via Marp) and reset history. */
   const buildDeck = useCallback(async (src: string) => {
-    const prepared = await mathToImages(resolveImagePaths(src, imagesRef.current))
+    const withDiagrams = await mermaidToImages(resolveImagePaths(src, imagesRef.current))
+    const prepared = await mathToImages(withDiagrams, { color: mathColorFor(src) })
     const d = await deckFromRenderedMarkdown(prepared)
     deckRef.current = d
     setDeck(d)
@@ -312,6 +353,17 @@ function App() {
     }
     await buildDeck(markdown)
     return true
+  }
+
+  /** Switch the Marp theme (rewrites the front matter and rebuilds the deck). */
+  async function changeTheme(theme: string) {
+    if (theme === themeOfMarkdown(markdown)) return
+    if (deckRef.current && deckDirty && !window.confirm('テーマを変更するとスライドを作り直します。編集した内容は上書きされます。よろしいですか？')) {
+      return
+    }
+    const next = setMarkdownTheme(markdown, theme)
+    setMarkdown(next)
+    await buildDeck(next)
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -383,9 +435,13 @@ function App() {
     setStatus({ kind: 'exporting', done: 0, total: 0 })
     const onProgress = (done: number, total: number) => setStatus({ kind: 'exporting', done, total })
     try {
+      // The export libs (pptxgenjs / jspdf + html-to-image) load on demand,
+      // keeping them out of the app's initial chunk.
       if (target === 'pptx') {
+        const { exportDeckToPptx } = await import('./lib/exportDeck')
         await exportDeckToPptx(deckRef.current, { fileName, onProgress })
       } else {
+        const { exportDeckToPdf } = await import('./lib/exportPdf')
         await exportDeckToPdf(deckRef.current, { fileName, onProgress })
       }
       setStatus({ kind: 'idle' })
@@ -419,6 +475,19 @@ function App() {
           <span className="tagline">Markdown → PowerPoint</span>
         </div>
         <div className="actions">
+          <select
+            className="theme-select"
+            value={themeOfMarkdown(markdown)}
+            onChange={(e) => void changeTheme(e.target.value)}
+            title="スライドのテーマ（Marp 組み込みテーマ）"
+            aria-label="テーマ"
+          >
+            {THEMES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
           <button
             className="reset"
             onClick={resetToDefault}

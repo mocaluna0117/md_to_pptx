@@ -17,8 +17,16 @@ import {
   ExternalHyperlink,
   Textbox,
   LineRuleType,
+  Header,
+  Footer,
+  PageNumber,
+  TableOfContents,
+  PageBreak,
+  convertMillimetersToTwip,
+  ImportedXmlComponent,
 } from 'docx'
 import { toHex } from './deck'
+import { texToMathML } from './math'
 import { DEFAULT_BOX_LINE_HEIGHT, type DocBox } from './docBox'
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
@@ -44,17 +52,38 @@ interface RunStyle {
   size?: number
 }
 
+/** Word margin presets in millimeters (all four sides). */
+export const DOC_MARGINS_MM: Record<'narrow' | 'normal' | 'wide', number> = {
+  narrow: 12.7,
+  normal: 25.4,
+  wide: 38.1,
+}
+
+/** Document-wide settings chosen in Docdown's 文書設定 panel. */
+export interface DocSettings {
+  /** Body font family; empty = the default (Calibri). */
+  font?: string
+  margin?: 'narrow' | 'normal' | 'wide'
+  /** Centered page number in the footer. */
+  pageNumbers?: boolean
+  /** Right-aligned header text on every page (e.g. 学籍番号). */
+  headerText?: string
+  /** Insert a table of contents (heading levels 1–3) at the top. */
+  toc?: boolean
+}
+
 export interface DocxOptions {
   fileName?: string
+  settings?: DocSettings
 }
 
 /** Convert Markdown to an editable .docx and trigger a download. */
 export async function exportMarkdownToDocx(markdown: string, options: DocxOptions = {}): Promise<void> {
-  const { fileName = 'document.docx' } = options
+  const { fileName = 'document.docx', settings } = options
   const tokens = md.parse(markdown, {})
   const images = await resolveImages(markdown)
   const children = blocksFromTokens(tokens, { n: 0 }, images)
-  await packAndDownload(children, fileName)
+  await packAndDownload(children, fileName, settings)
 }
 
 /**
@@ -66,7 +95,7 @@ export async function exportMarkdownToDocx(markdown: string, options: DocxOption
  * Word text box anchored to the page at an absolute position.
  */
 export async function exportHtmlToDocx(html: string, boxes: DocBox[] = [], options: DocxOptions = {}): Promise<void> {
-  const { fileName = 'document.docx' } = options
+  const { fileName = 'document.docx', settings } = options
   const root = document.createElement('div')
   root.innerHTML = html
   const boxRoots = boxes.map((b) => {
@@ -76,11 +105,45 @@ export async function exportHtmlToDocx(html: string, boxes: DocBox[] = [], optio
   })
   const srcs = [...collectImageSrcs(root), ...boxRoots.flatMap(collectImageSrcs)]
   const images = await resolveImageSrcs(srcs)
-  const children = blocksFromDom(root, { n: 0 }, images)
-  // Text boxes are prepended so their anchor paragraph sits on the first page,
-  // letting page-relative absolute positions place them at the intended coords.
-  const boxChildren = boxes.map((b, i) => textboxFromBox(b, boxRoots[i], images))
-  await packAndDownload([...boxChildren, ...children], fileName)
+  // Math images carrying their LaTeX source become native Word equations (OMML).
+  mathOmml = await buildMathOmml([root, ...boxRoots])
+  try {
+    const children = blocksFromDom(root, { n: 0 }, images)
+    // Text boxes are prepended so their anchor paragraph sits on the first page,
+    // letting page-relative absolute positions place them at the intended coords.
+    const boxChildren = boxes.map((b, i) => textboxFromBox(b, boxRoots[i], images))
+    await packAndDownload([...boxChildren, ...children], fileName, settings)
+  } finally {
+    mathOmml = null
+  }
+}
+
+// OMML per math <img>, valid for the duration of one export call (exports never overlap).
+let mathOmml: WeakMap<Element, string> | null = null
+
+/** Convert each math image's LaTeX (data-tex) to an OMML string, keyed by element. */
+async function buildMathOmml(roots: HTMLElement[]): Promise<WeakMap<Element, string>> {
+  const map = new WeakMap<Element, string>()
+  const imgs = roots.flatMap((r) => Array.from(r.querySelectorAll('img[data-tex]')))
+  if (imgs.length === 0) return map
+  const { mml2omml } = await import('mathml2omml')
+  for (const img of imgs) {
+    const tex = img.getAttribute('data-tex') || ''
+    if (!tex) continue
+    const display = img.getAttribute('data-display') === '1'
+    try {
+      const mml = await texToMathML(tex, display)
+      // Declare the math namespace on the fragment so the XML importer accepts it.
+      const omml = mml2omml(mml).replace(
+        /^<m:(oMathPara|oMath)/,
+        (m) => `${m} xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"`,
+      )
+      map.set(img, omml)
+    } catch {
+      /* keep the PNG fallback for this equation */
+    }
+  }
+  return map
 }
 
 const PX_TO_PT = 0.75 // 96dpi CSS pixels → points
@@ -126,8 +189,18 @@ function runsFromBoxDom(root: HTMLElement, images: ImageMap): InlineChild[] {
   return out.length ? out : [new TextRun('')]
 }
 
-/** Assemble the shared Document (numbering + default style) and trigger the download. */
-async function packAndDownload(children: Block[], fileName: string): Promise<void> {
+/** Assemble the shared Document (A4, settings, numbering, default style) and download it. */
+async function packAndDownload(children: Block[], fileName: string, settings: DocSettings = {}): Promise<void> {
+  const marginTwip = convertMillimetersToTwip(DOC_MARGINS_MM[settings.margin ?? 'normal'])
+  const body: (Block | TableOfContents)[] = children.length ? [...children] : [new Paragraph('')]
+  if (settings.toc) {
+    // Word shows the entries after the reader updates fields (Ctrl+A → F9).
+    body.unshift(
+      new TableOfContents('目次', { hyperlink: true, headingStyleRange: '1-3' }),
+      new Paragraph({ children: [new PageBreak()] }),
+    )
+  }
+
   const doc = new Document({
     numbering: {
       config: [
@@ -145,10 +218,41 @@ async function packAndDownload(children: Block[], fileName: string): Promise<voi
     },
     styles: {
       default: {
-        document: { run: { font: 'Calibri', size: 22 } },
+        document: { run: { font: settings.font || 'Calibri', size: 22 } },
       },
     },
-    sections: [{ children: children.length ? children : [new Paragraph('')] }],
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { width: convertMillimetersToTwip(210), height: convertMillimetersToTwip(297) }, // A4
+            margin: { top: marginTwip, bottom: marginTwip, left: marginTwip, right: marginTwip },
+          },
+        },
+        headers: settings.headerText
+          ? {
+              default: new Header({
+                children: [
+                  new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun(settings.headerText)] }),
+                ],
+              }),
+            }
+          : undefined,
+        footers: settings.pageNumbers
+          ? {
+              default: new Footer({
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [new TextRun({ children: [PageNumber.CURRENT] })],
+                  }),
+                ],
+              }),
+            }
+          : undefined,
+        children: body,
+      },
+    ],
   })
 
   const blob = await Packer.toBlob(doc)
@@ -575,6 +679,16 @@ function walkInline(node: Node, style: RunStyle, images: ImageMap, out: InlineCh
       out.push(new TextRun({ break: 1 }))
       return
     case 'IMG': {
+      // A math image with a prepared OMML becomes a native Word equation.
+      const omml = mathOmml?.get(el)
+      if (omml) {
+        try {
+          out.push(ImportedXmlComponent.fromXmlString(omml) as unknown as TextRun)
+          return
+        } catch {
+          /* fall through to the PNG */
+        }
+      }
       const src = el.getAttribute('src') ?? ''
       const img = src && images.get(src)
       if (img) out.push(imageRun(img))

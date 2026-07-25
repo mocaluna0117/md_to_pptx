@@ -2,9 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import MarkdownIt from 'markdown-it'
 import markdownItCjkFriendly from 'markdown-it-cjk-friendly'
 import { navigate } from './Root'
-import { exportHtmlToDocx } from './lib/exportDocx'
+import type { DocSettings } from './lib/exportDocx'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
+import { mermaidToImages } from './lib/mermaid'
 import { copyText } from './lib/clipboard'
 import type { DocBox } from './lib/docBox'
 import DocEditor from './components/DocEditor'
@@ -61,6 +62,15 @@ interface Persisted {
   boxes?: DocBox[]
   drawerWidth?: number
   mdFileName?: string
+  docSettings?: DocSettings
+}
+
+/** Preview font stacks for the exportable font names. */
+const DOC_FONT_CSS: Record<string, string> = {
+  'Yu Mincho': '"Yu Mincho", "Hiragino Mincho ProN", serif',
+  'MS Mincho': '"MS Mincho", "Hiragino Mincho ProN", serif',
+  'Yu Gothic': '"Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif',
+  Meiryo: 'Meiryo, "Hiragino Kaku Gothic ProN", sans-serif',
 }
 
 function loadPersisted(): Persisted {
@@ -112,6 +122,20 @@ export default function Docdown() {
   const [images, setImages] = useState<AttachedImages>(persisted.images ?? {})
   const [status, setStatus] = useState<Status>('idle')
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [docSettings, setDocSettings] = useState<DocSettings>(persisted.docSettings ?? {})
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsWrapRef = useRef<HTMLDivElement>(null)
+  const patchSettings = (patch: Partial<DocSettings>) => setDocSettings((s) => ({ ...s, ...patch }))
+
+  // Close the 文書設定 popover on an outside click.
+  useEffect(() => {
+    if (!settingsOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!settingsWrapRef.current?.contains(e.target as Node)) setSettingsOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [settingsOpen])
   const [helpOpen, setHelpOpen] = useState(false)
   const [promptCopied, setPromptCopied] = useState(false)
 
@@ -203,7 +227,8 @@ export default function Docdown() {
 
   /** Render Markdown → document HTML (images + math baked in) and reseed the editor. */
   const buildDoc = useCallback(async (src: string) => {
-    const prepared = await mathToImages(resolveImagePaths(src, imagesRef.current))
+    const withDiagrams = await mermaidToImages(resolveImagePaths(src, imagesRef.current))
+    const prepared = await mathToImages(withDiagrams)
     const rendered = mdRender.render(stripFrontmatter(prepared))
     setDocHtml(rendered)
     docHtmlRef.current = rendered
@@ -238,18 +263,18 @@ export default function Docdown() {
   useEffect(() => {
     const id = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes, docSettings }))
       } catch {
         // Document HTML / images / boxes may exceed the storage quota: keep at least the text.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth }))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ markdown, fileName, mdFileName, mdOpen, drawerWidth, docSettings }))
         } catch {
           /* storage unavailable */
         }
       }
     }, 300)
     return () => clearTimeout(id)
-  }, [markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes])
+  }, [markdown, fileName, mdFileName, mdOpen, drawerWidth, images, docHtml, docDirty, boxes, docSettings])
 
   async function addImageFiles(files: File[]) {
     const imgs = files.filter((f) => IMAGE_EXT.test(f.name) || f.type.startsWith('image/'))
@@ -286,7 +311,9 @@ export default function Docdown() {
     setExportMenuOpen(false)
     setStatus('exporting')
     try {
-      await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName })
+      // The docx lib loads on demand, keeping it out of the app's initial chunk.
+      const { exportHtmlToDocx } = await import('./lib/exportDocx')
+      await exportHtmlToDocx(docHtmlRef.current, boxesRef.current, { fileName, settings: docSettings })
       setStatus('idle')
     } catch (err) {
       const message =
@@ -360,6 +387,73 @@ export default function Docdown() {
           <span className="tagline">Markdown → Word</span>
         </div>
         <div className="actions">
+          <div className="export-wrap" ref={settingsWrapRef}>
+            <button
+              className="reset"
+              onClick={() => setSettingsOpen((o) => !o)}
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
+              title="用紙・フォント・ページ番号などの文書設定"
+            >
+              ⚙ 文書設定
+            </button>
+            {settingsOpen && (
+              <div className="export-menu doc-settings" role="dialog" aria-label="文書設定">
+                <label className="ds-row">
+                  <span>本文フォント</span>
+                  <select
+                    value={docSettings.font ?? ''}
+                    onChange={(e) => patchSettings({ font: e.target.value || undefined })}
+                  >
+                    <option value="">既定（Calibri）</option>
+                    <option value="Yu Mincho">游明朝</option>
+                    <option value="MS Mincho">ＭＳ 明朝</option>
+                    <option value="Yu Gothic">游ゴシック</option>
+                    <option value="Meiryo">メイリオ</option>
+                  </select>
+                </label>
+                <label className="ds-row">
+                  <span>余白（A4）</span>
+                  <select
+                    value={docSettings.margin ?? 'normal'}
+                    onChange={(e) => patchSettings({ margin: e.target.value as DocSettings['margin'] })}
+                  >
+                    <option value="narrow">狭い（12.7mm）</option>
+                    <option value="normal">標準（25.4mm）</option>
+                    <option value="wide">広い（38.1mm）</option>
+                  </select>
+                </label>
+                <label className="ds-row">
+                  <span>ヘッダー（右上）</span>
+                  <input
+                    type="text"
+                    value={docSettings.headerText ?? ''}
+                    placeholder="例: 学籍番号・氏名"
+                    onChange={(e) => patchSettings({ headerText: e.target.value || undefined })}
+                  />
+                </label>
+                <label className="ds-check">
+                  <input
+                    type="checkbox"
+                    checked={!!docSettings.pageNumbers}
+                    onChange={(e) => patchSettings({ pageNumbers: e.target.checked })}
+                  />
+                  ページ番号を付ける（下部中央）
+                </label>
+                <label className="ds-check">
+                  <input
+                    type="checkbox"
+                    checked={!!docSettings.toc}
+                    onChange={(e) => patchSettings({ toc: e.target.checked })}
+                  />
+                  先頭に目次を挿入
+                </label>
+                <p className="ds-note">
+                  Word 書き出しに反映されます（目次は Word で開いて F9 で更新）。本文フォントはプレビューにも反映。
+                </p>
+              </div>
+            )}
+          </div>
           <button className="reset" onClick={resetToDefault} title="内容を初期状態に戻す">
             🔄 初期化
           </button>
@@ -538,7 +632,10 @@ export default function Docdown() {
           </span>
         </button>
 
-        <main className="doc-main">
+        <main
+          className="doc-main"
+          style={docSettings.font ? ({ '--doc-font': DOC_FONT_CSS[docSettings.font] } as React.CSSProperties) : undefined}
+        >
           <DocEditor
             key={rebuildToken}
             html={docHtml}

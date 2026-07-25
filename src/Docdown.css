@@ -22,7 +22,8 @@
   border: 1px solid #e2e5ea;
   border-radius: 4px;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.28);
-  font-family: 'Calibri', 'Segoe UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', sans-serif;
+  /* --doc-font is set by the 文書設定 body-font choice (falls back to the default stack). */
+  font-family: var(--doc-font, 'Calibri', 'Segoe UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', sans-serif);
   font-size: 16px;
   line-height: 1.75;
 }
@@ -419,6 +420,51 @@ body.doc-box-gesture * {
   border-radius: 4px;
   background: var(--panel-2);
   cursor: pointer;
+}
+
+/* ---- 文書設定 popover ---- */
+.doc-settings {
+  width: 300px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: default;
+}
+.ds-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+.ds-row select,
+.ds-row input[type='text'] {
+  flex: 1 1 auto;
+  max-width: 170px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.ds-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ds-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 
 /* Smart-alignment guide lines shown while dragging a box. */
