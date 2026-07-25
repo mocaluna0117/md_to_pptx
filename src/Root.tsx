@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import Home from './Home'
-import Deckdown from './App'
-import Docdown from './Docdown'
+
+// Each app is its own chunk, so the launcher loads without Marp/MathJax/export libs.
+const Deckdown = lazy(() => import('./App'))
+const Docdown = lazy(() => import('./Docdown'))
 
 export type Route = 'home' | 'slides' | 'docx'
 
@@ -17,6 +19,10 @@ export function navigate(route: Route): void {
   window.location.hash = route === 'home' ? '#/' : `#/${route}`
 }
 
+function Loading() {
+  return <div className="route-loading">読み込み中…</div>
+}
+
 export default function Root() {
   const [route, setRoute] = useState<Route>(routeFromHash())
   useEffect(() => {
@@ -25,7 +31,19 @@ export default function Root() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  if (route === 'slides') return <Deckdown />
-  if (route === 'docx') return <Docdown />
+  if (route === 'slides') {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Deckdown />
+      </Suspense>
+    )
+  }
+  if (route === 'docx') {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Docdown />
+      </Suspense>
+    )
+  }
   return <Home />
 }

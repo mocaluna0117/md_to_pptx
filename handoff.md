@@ -107,15 +107,11 @@ npm run lint      # oxlint
 - 数式 PNG はダーク（#111）固定。暗い背景のスライドでは見えづらい可能性。
 - MathJax は動的 import（数式使用時のみロード）。初回は少し重い。
 
-## 11. 未使用・レガシーファイル（削除候補）
+## 11. レガシーの現状
 
-過去の構成の名残で、現在の UI からは使われていない：
-- `src/lib/exportPptx.ts`（画像方式 PPTX）
-- `src/lib/exportPptxNative.ts` ＋ `src/lib/markdownModel.ts`（Markdown 直→ネイティブ pptx）
-- `src/lib/frontmatter.ts`（deck.ts の `deckFromMarkdown` フォールバックが一部参照）
-- `src/assets/*`（Vite 雛形の残り）
-
-ビルドは通る（無害）。整理するなら参照有無を確認して削除可。
+- `src/lib/exportPptx.ts`・`src/lib/exportPptxNative.ts`・`src/assets/*` は**削除済み**。
+- `src/lib/markdownModel.ts`・`src/lib/frontmatter.ts` は **deck.ts の `deckFromMarkdown`
+  フォールバック（deckFromRender が Marp 失敗時に使用）が参照するため残している**。
 
 ## 12. 今後の候補
 

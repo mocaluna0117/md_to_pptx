@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Slide } from '../lib/deck'
-import { fillSlideElement, DECK_PX, SLIDE_BASE_STYLE, SLIDE_CODE_CSS } from '../lib/rasterize'
+import { fillSlideElement, DECK_PX, SLIDE_BASE_STYLE, SLIDE_CODE_CSS } from '../lib/slideRender'
 
 interface Props {
   slides: Slide[]
