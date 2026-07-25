@@ -105,6 +105,18 @@
   color: var(--text-dim);
 }
 
+/* Japanese-friendly wrapping for the short blurbs: keep-all restricts breaks to
+   punctuation/space boundaries (no mid-word「のよ/うに」or a lone trailing「し。」),
+   and balance equalizes the resulting lines. overflow-wrap stays as an escape
+   hatch so an unbreakable run can still split on very narrow screens. */
+.home-sub,
+.home-card-fmt,
+.home-card-desc {
+  text-wrap: balance;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
 @media (max-width: 560px) {
   .home-cards {
     grid-template-columns: 1fr;
