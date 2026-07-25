@@ -332,7 +332,9 @@
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.6);
   cursor: move;
-  overflow: hidden;
+  /* visible, not hidden: the delete/resize handles sit outside the box edge and
+     must stay clickable; the body clips its own content (overflow: auto). */
+  overflow: visible;
 }
 .doc-box.selected {
   border: 1px solid #2563eb;
@@ -353,6 +355,12 @@
 }
 .doc-box:not(.selected) .doc-box-body {
   cursor: move;
+}
+/* Static (non-editing) body: no text selection, so drags don't select text.
+   The gesture handler intentionally avoids preventDefault on pointerdown —
+   it would suppress dblclick (edit) and the ✕ button's click. */
+.doc-box-body:not([contenteditable='true']) {
+  user-select: none;
 }
 
 .doc-box-del {

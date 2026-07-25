@@ -111,6 +111,30 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null)
   const [active, setActive] = useState({ bold: false, italic: false, strike: false, block: 'p', align: 'left' })
   const imageNames = Object.keys(images)
+  const selectedBoxIdRef = useRef(selectedBoxId)
+  selectedBoxIdRef.current = selectedBoxId
+  const editingBoxIdRef = useRef(editingBoxId)
+  editingBoxIdRef.current = editingBoxId
+
+  // Keyboard: Backspace/Delete removes the selected box — but never while editing
+  // text or when a form field / contentEditable has focus (mirrors Deckdown).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const id = selectedBoxIdRef.current
+      if (!id || editingBoxIdRef.current) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault()
+        deleteBox(id)
+      } else if (e.key === 'Escape') {
+        setSelectedBoxId(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Seed the flowing content once on mount.
   useEffect(() => {
@@ -338,9 +362,15 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     if (editingBoxId === id) setEditingBoxId(null)
   }
 
+  // NB: stopPropagation only — preventDefault on pointerdown would suppress the
+  // compat mouse events, breaking double-click-to-edit and the ✕ button's click
+  // (Deckdown's startDrag works the same way). Text selection during a drag is
+  // prevented via CSS user-select on the static box body.
   function startBoxGesture(e: React.PointerEvent, box: DocBox, mode: 'move' | 'resize') {
-    e.preventDefault()
     e.stopPropagation()
+    // Drop focus from the page/box editable so a later Backspace deletes this box
+    // instead of editing the previously focused text.
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
     setSelectedBoxId(box.id)
     dragRef.current = { mode, id: box.id, sx: e.clientX, sy: e.clientY, ox: box.x, oy: box.y, ow: box.w, oh: box.h }
     window.addEventListener('pointermove', onGestureMove)
@@ -478,6 +508,14 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         <div className="det-group">
           {btn('▦', '表を挿入', insertTable)}
           {btn('＋テキストボックス', 'テキストボックスを追加', addBox, false, 'det-box-add')}
+          {selectedBoxId &&
+            btn(
+              '🗑 選択しているテキストボックスを削除',
+              '選択しているテキストボックスを削除（Backspace / Delete でも削除できます）',
+              () => deleteBox(selectedBoxId),
+              false,
+              'det-box-add',
+            )}
         </div>
       </div>
 
@@ -614,7 +652,21 @@ function DocBoxView({ box, selected, editing, onSelect, onStartMove, onStartResi
       )}
       {selected && (
         <>
-          <button className="doc-box-del" title="ボックスを削除" aria-label="ボックスを削除" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.stopPropagation(); onDelete() }}>
+          {/* pointerdown must not reach the box, or a move-drag starts and swallows the click. */}
+          <button
+            className="doc-box-del"
+            title="ボックスを削除（Backspace / Delete でも削除できます）"
+            aria-label="ボックスを削除"
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
+          >
             ×
           </button>
           <span className="doc-box-resize" onPointerDown={onStartResize} title="サイズ変更" />
