@@ -406,6 +406,41 @@ body.doc-box-gesture * {
   white-space: nowrap;
 }
 
+.det-grow {
+  margin-left: auto;
+  border-right: none;
+}
+
+.det-color-input {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+/* Smart-alignment guide lines shown while dragging a box. */
+.doc-guide {
+  position: absolute;
+  z-index: 60;
+  pointer-events: none;
+  background: #ff2d55;
+}
+.doc-guide-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+}
+.doc-guide-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+}
+
 /* ---- Print → PDF (vector, high quality) ---- */
 @media print {
   /* Hide all app chrome; print only the document page. */

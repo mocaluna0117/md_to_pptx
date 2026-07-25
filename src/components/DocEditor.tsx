@@ -12,6 +12,51 @@ interface Props {
   /** Free-floating text boxes layered over the document. */
   boxes: DocBox[]
   onBoxesChange: (boxes: DocBox[]) => void
+  /** Rebuild the document from the current Markdown (confirms when dirty). */
+  onRegenerate: () => void
+}
+
+/** Distance (px) within which a dragged box edge/center snaps to a guide line. */
+const SNAP_PX = 6
+
+/**
+ * PowerPoint-style smart guides (same idea as Deckdown's snapMove): snap the dragged
+ * box's edges/center to the page's edges & horizontal center, the page top, and other
+ * boxes' edges & centers. Returns the snapped position plus guide lines to draw (px).
+ */
+function snapBoxMove(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  pageW: number,
+  others: DocBox[],
+): { x: number; y: number; v: number | null; h: number | null } {
+  const xLines = [pageW / 2, 0, pageW]
+  const yLines = [0]
+  for (const o of others) {
+    xLines.push(o.x, o.x + o.w / 2, o.x + o.w)
+    yLines.push(o.y, o.y + o.h / 2, o.y + o.h)
+  }
+  const snap1D = (points: number[], lines: number[]) => {
+    let best = SNAP_PX
+    let line: number | null = null
+    let point = 0
+    for (const p of points) {
+      for (const l of lines) {
+        const d = Math.abs(p - l)
+        if (d < best) {
+          best = d
+          line = l
+          point = p
+        }
+      }
+    }
+    return line === null ? { delta: 0, guide: null as number | null } : { delta: line - point, guide: line }
+  }
+  const sx = snap1D([x, x + w / 2, x + w], xLines)
+  const sy = snap1D([y, y + h / 2, y + h], yLines)
+  return { x: x + sx.delta, y: y + sy.delta, v: sx.guide, h: sy.guide }
 }
 
 const DEFAULT_PT = 11
@@ -97,7 +142,7 @@ function RedoIcon() {
  * The toolbar operates on whichever editable surface (the page or a box) last held the
  * selection, tracked via `activeEditableRef`.
  */
-export default function DocEditor({ html, images, onChange, boxes, onBoxesChange }: Props) {
+export default function DocEditor({ html, images, onChange, boxes, onBoxesChange, onRegenerate }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const savedRange = useRef<Range | null>(null)
@@ -111,7 +156,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null)
-  const [active, setActive] = useState({ bold: false, italic: false, strike: false, block: 'p', align: 'left' })
+  // Smart-guide lines shown while dragging a box (positions in px, or null).
+  const [guides, setGuides] = useState<{ v: number | null; h: number | null }>({ v: null, h: null })
+  const [active, setActive] = useState({ bold: false, italic: false, strike: false, underline: false, block: 'p', align: 'left', inTable: false })
   const imageNames = Object.keys(images)
   const selectedBoxIdRef = useRef(selectedBoxId)
   selectedBoxIdRef.current = selectedBoxId
@@ -201,9 +248,11 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     if (!sel || sel.rangeCount === 0) return
     let node: Node | null = sel.getRangeAt(0).startContainer
     let block = 'p'
+    let inTable = false
     while (node && node !== surface) {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const tag = (node as HTMLElement).tagName
+        if (tag === 'TD' || tag === 'TH') inTable = true
         if (block === 'p' && /^(H[1-6]|BLOCKQUOTE|PRE|P)$/.test(tag)) block = tag.toLowerCase()
       }
       node = node.parentNode
@@ -217,14 +266,16 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     let bold = false
     let italic = false
     let strike = false
+    let underline = false
     try {
       bold = document.queryCommandState('bold')
       italic = document.queryCommandState('italic')
       strike = document.queryCommandState('strikeThrough')
+      underline = document.queryCommandState('underline')
     } catch {
       /* ignore */
     }
-    setActive({ bold, italic, strike, block, align })
+    setActive({ bold, italic, strike, underline, block, align, inTable })
   }
 
   /**
@@ -315,6 +366,71 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const head = `<tr>${Array.from({ length: cols }, (_, c) => `<th>見出し${c + 1}</th>`).join('')}</tr>`
     const body = `<tr>${Array.from({ length: cols }, () => '<td>&nbsp;</td>').join('')}</tr>`
     exec('insertHTML', `<table><thead>${head}</thead><tbody>${body}</tbody></table><p><br></p>`)
+  }
+
+  // ---- Table structural edits (operate on the cell containing the caret) ----
+
+  function currentCell(): HTMLTableCellElement | null {
+    let node: Node | null = savedRange.current?.startContainer ?? null
+    while (node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tag = (node as HTMLElement).tagName
+        if (tag === 'TD' || tag === 'TH') return node as HTMLTableCellElement
+      }
+      node = node.parentNode
+    }
+    return null
+  }
+
+  function withCell(fn: (cell: HTMLTableCellElement, row: HTMLTableRowElement, table: HTMLTableElement) => void) {
+    const cell = currentCell()
+    const row = cell?.parentElement as HTMLTableRowElement | undefined
+    const table = cell?.closest('table') as HTMLTableElement | null
+    if (!cell || !row || !table) return
+    fn(cell, row, table)
+    if (activeEditableRef.current) refreshActive(activeEditableRef.current)
+    syncActive()
+  }
+
+  function addRow() {
+    withCell((_cell, row) => {
+      const cols = row.children.length
+      const tr = document.createElement('tr')
+      for (let c = 0; c < cols; c++) {
+        const td = document.createElement('td')
+        td.innerHTML = '&nbsp;'
+        tr.appendChild(td)
+      }
+      row.after(tr)
+    })
+  }
+  function delRow() {
+    withCell((_cell, row, table) => {
+      if (table.querySelectorAll('tr').length > 1) row.remove()
+    })
+  }
+  function addCol() {
+    withCell((cell, _row, table) => {
+      const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
+      for (const tr of Array.from(table.querySelectorAll('tr'))) {
+        const ref = tr.children[index]
+        const isHead = ref && ref.tagName === 'TH'
+        const nc = document.createElement(isHead ? 'th' : 'td')
+        nc.innerHTML = '&nbsp;'
+        if (ref) ref.after(nc)
+        else tr.appendChild(nc)
+      }
+    })
+  }
+  function delCol() {
+    withCell((cell, _row, table) => {
+      const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
+      const firstRowCells = table.querySelector('tr')?.children.length ?? 0
+      if (firstRowCells <= 1) return
+      for (const tr of Array.from(table.querySelectorAll('tr'))) {
+        tr.children[index]?.remove()
+      }
+    })
   }
 
   // ---- Font size (points, carried on data-fs so the .docx export can read it) ----
@@ -455,12 +571,20 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const dx = e.clientX - d.sx
     const dy = e.clientY - d.sy
     if (d.mode === 'move') {
-      patchBox(d.id, { x: Math.max(0, Math.round(d.ox + dx)), y: Math.max(0, Math.round(d.oy + dy)) }, d.key)
+      const px = Math.max(0, Math.round(d.ox + dx))
+      const py = Math.max(0, Math.round(d.oy + dy))
+      const box = boxesRef.current.find((b) => b.id === d.id)
+      const pageW = wrapRef.current?.clientWidth ?? 760
+      const others = boxesRef.current.filter((b) => b.id !== d.id)
+      const snapped = snapBoxMove(px, py, box?.w ?? d.ow, box?.h ?? d.oh, pageW, others)
+      patchBox(d.id, { x: Math.max(0, Math.round(snapped.x)), y: Math.max(0, Math.round(snapped.y)) }, d.key)
+      setGuides({ v: snapped.v, h: snapped.h })
     } else {
       patchBox(d.id, { w: Math.max(60, Math.round(d.ow + dx)), h: Math.max(36, Math.round(d.oh + dy)) }, d.key)
     }
   }
   function onGestureUp() {
+    if (dragRef.current) setGuides({ v: null, h: null })
     dragRef.current = null
     document.body.classList.remove('doc-box-gesture')
     // Belt and braces: drop any stray selection so focus stays off the editables.
@@ -542,7 +666,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
           {btn('B', '太字', () => exec('bold'), active.bold, 'det-b')}
           {btn('I', '斜体', () => exec('italic'), active.italic, 'det-i')}
           {btn('S', '取り消し線', () => exec('strikeThrough'), active.strike, 'det-s')}
-          {btn('U', '下線', () => exec('underline'), false, 'det-u')}
+          {btn('U', '下線', () => exec('underline'), active.underline, 'det-u')}
         </div>
 
         <div className="det-group">
@@ -581,6 +705,15 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
               onClick={() => exec('foreColor', `#${c}`, true)}
             />
           ))}
+          <span className="vtipwrap" data-tip="カスタム色">
+            <input
+              type="color"
+              className="det-color-input"
+              aria-label="カスタム色"
+              onMouseDown={() => restore()}
+              onChange={(e) => exec('foreColor', e.target.value, true)}
+            />
+          </span>
         </div>
 
         <div className="det-group">
@@ -616,6 +749,14 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
 
         <div className="det-group">
           {btn('▦', '表を挿入', insertTable)}
+          {active.inTable && (
+            <>
+              {btn('＋行', '行を追加（カーソル行の下）', addRow)}
+              {btn('−行', 'カーソル行を削除', delRow)}
+              {btn('＋列', '列を追加（カーソル列の右）', addCol)}
+              {btn('−列', 'カーソル列を削除', delCol)}
+            </>
+          )}
           {btn('＋テキストボックス', 'テキストボックスを追加', addBox, false, 'det-box-add')}
           {selectedBoxId && (
             <span className="vtipwrap" data-tip="選択しているテキストボックスの行間">
@@ -642,6 +783,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
               'det-box-add',
             )}
         </div>
+
+        <div className="det-group det-grow">
+          {btn('Markdownから作り直す', '現在のMarkdownから文書を作り直す（編集内容は破棄）', onRegenerate, false, 'det-box-add')}
+        </div>
       </div>
 
       <div className="doc-scroll">
@@ -659,6 +804,8 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
             onMouseDown={() => setSelectedBoxId(null)}
           />
           <div className="doc-box-layer">
+            {guides.v != null && <div className="doc-guide doc-guide-v" style={{ left: guides.v }} aria-hidden />}
+            {guides.h != null && <div className="doc-guide doc-guide-h" style={{ top: guides.h }} aria-hidden />}
             {boxes.map((box) => (
               <DocBoxView
                 key={box.id}

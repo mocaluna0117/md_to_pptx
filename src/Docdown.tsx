@@ -5,6 +5,7 @@ import { navigate } from './Root'
 import { exportHtmlToDocx } from './lib/exportDocx'
 import { resolveImagePaths, readImageFiles, IMAGE_EXT, type AttachedImages } from './lib/imageAttach'
 import { mathToImages } from './lib/math'
+import { copyText } from './lib/clipboard'
 import type { DocBox } from './lib/docBox'
 import DocEditor from './components/DocEditor'
 import './App.css'
@@ -85,6 +86,19 @@ function mergeMarkdown(base: string, add: string): string {
 
 type Status = 'idle' | 'exporting' | { error: string }
 
+/** A prompt users can hand to an AI (ChatGPT etc.) to generate document-ready Markdown. */
+const AI_PROMPT = `次の内容を文書（レポート/ドキュメント）にまとめて、Markdown（.md）で出力してください。
+
+# ルール
+- 見出し（#〜###）で章立てする
+- 箇条書き・番号付きリスト・表を活用する
+- 強調は **太字**・*斜体* を使う
+- 数式が必要なら $…$ / $$…$$（LaTeX）で書く
+- 装飾は Markdown のみ（HTML タグは使わない）
+
+# まとめたい内容
+（ここに伝えたい内容や、添付画像の説明を書いてください）`
+
 export default function Docdown() {
   const [markdown, setMarkdown] = useState(persisted.markdown ?? SAMPLE)
   const [fileName, setFileName] = useState(persisted.fileName ?? 'document')
@@ -98,6 +112,25 @@ export default function Docdown() {
   const [images, setImages] = useState<AttachedImages>(persisted.images ?? {})
   const [status, setStatus] = useState<Status>('idle')
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [promptCopied, setPromptCopied] = useState(false)
+
+  async function copyPrompt() {
+    if (await copyText(AI_PROMPT)) {
+      setPromptCopied(true)
+      setTimeout(() => setPromptCopied(false), 1500)
+    }
+  }
+
+  // Close the "使い方" dialog on Escape.
+  useEffect(() => {
+    if (!helpOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHelpOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [helpOpen])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const importModeRef = useRef<'replace' | 'append'>('replace')
@@ -314,9 +347,14 @@ export default function Docdown() {
   return (
     <div className="app">
       <header className="toolbar">
-        <button className="home-btn" onClick={() => navigate('home')} title="ホームに戻る" aria-label="ホームに戻る">
-          ⌂
-        </button>
+        <div className="tb-left">
+          <button className="home-btn" onClick={() => navigate('home')} title="ホームに戻る" aria-label="ホームに戻る">
+            ⌂
+          </button>
+          <button className="help-btn" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">
+            ？ 使い方
+          </button>
+        </div>
         <div className="brand">
           <h1>Docdown</h1>
           <span className="tagline">Markdown → Word</span>
@@ -399,7 +437,8 @@ export default function Docdown() {
                     importModeRef.current = 'replace'
                     fileInputRef.current?.click()
                   }}
-                  title="Markdown を読み込み（現在の内容を置き換え）"
+                  data-tip="Markdown を読み込み（現在の内容を置き換え・対応: .md / .markdown / .txt）"
+                  aria-label="Markdown ファイルをインポート（現在の内容を置き換え）"
                 >
                   📂 インポート
                 </button>
@@ -409,14 +448,16 @@ export default function Docdown() {
                     importModeRef.current = 'append'
                     fileInputRef.current?.click()
                   }}
-                  title="別の Markdown を現在の内容に結合"
+                  data-tip="別の Markdown を現在の内容に結合して読み込み"
+                  aria-label="別の Markdown を現在の内容に結合して読み込み"
                 >
                   ＋ 結合
                 </button>
                 <button
                   className="loadmd"
                   onClick={() => imageInputRef.current?.click()}
-                  title="画像ファイルを読み込み、Markdown 内の相対パス（例: ![](fig1.png)）に紐づけます"
+                  data-tip="画像ファイルを読み込み、Markdown 内の相対パス（例: ![](fig1.png)）に紐づけます"
+                  aria-label="画像ファイルを読み込む"
                 >
                   🖼 画像
                 </button>
@@ -505,9 +546,97 @@ export default function Docdown() {
             onChange={handleDocChange}
             boxes={boxes}
             onBoxesChange={setBoxes}
+            onRegenerate={() => void rebuildFromMarkdown()}
           />
         </main>
       </div>
+
+      {helpOpen && (
+        <div className="help-overlay" onClick={() => setHelpOpen(false)}>
+          <div className="help-modal" role="dialog" aria-modal="true" aria-label="使い方" onClick={(e) => e.stopPropagation()}>
+            <div className="help-head">
+              <h2>使い方</h2>
+              <button className="help-close" onClick={() => setHelpOpen(false)} aria-label="閉じる">
+                ×
+              </button>
+            </div>
+            <div className="help-body">
+              <p className="help-lead">
+                Docdown は、Markdown で書いた文章を <b>編集できる Word（.docx）/ PDF</b> に変換するツールです。
+              </p>
+
+              <section>
+                <h3>1. Markdown を用意する</h3>
+                <p>
+                  左の「Markdown」パネルに直接書くか、<b>📂 インポート</b> で .md ファイルを読み込みます。
+                  AI に書いてもらう場合は、次のプロンプトが便利です。
+                </p>
+                <div className="help-prompt">
+                  <div className="help-prompt-head">
+                    <span>AI 用プロンプト</span>
+                    <button className="help-copy" onClick={() => void copyPrompt()}>
+                      {promptCopied ? '✓ コピーしました' : 'コピー'}
+                    </button>
+                  </div>
+                  <pre>{AI_PROMPT}</pre>
+                </div>
+                <p className="help-sub">
+                  相対パスの画像（例: <code>![](fig1.png)</code>）は <b>🖼 画像</b> からファイルを読み込むと表示されます。
+                  数式は <code>$…$</code> / <code>$$…$$</code>（LaTeX）に対応しています。
+                </p>
+              </section>
+
+              <section>
+                <h3>2. 文書に反映する</h3>
+                <p>
+                  「<b>プレビューに反映</b>」を押すと、Markdown から文書を作り直します。
+                  文書を直接編集した後に押すと上書き確認が出ます（<b>●</b> は未反映の編集がある印です）。
+                </p>
+              </section>
+
+              <section>
+                <h3>3. 文書を直接編集する</h3>
+                <ul>
+                  <li>本文はプレビューをクリックしてそのまま編集（太字・下線・色・見出し・リスト・表など）</li>
+                  <li><b>＋テキストボックス</b> で自由配置のボックスを追加（ドラッグ移動・ダブルクリックで編集・行間調整）</li>
+                  <li>表の中にカーソルを置くと <b>＋行/−行/＋列/−列</b> が使えます</li>
+                  <li>Ctrl/⌘+Z で元に戻す（テキストボックスの操作にも効きます）</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>4. 書き出す</h3>
+                <ul>
+                  <li><b>Word（.docx）</b> … 見出し・表・画像・テキストボックスまで、Word でそのまま編集できる形式</li>
+                  <li><b>PDF（印刷から保存）</b> … 印刷ダイアログで「PDF に保存」を選ぶと、文字を選択できる高画質 PDF</li>
+                </ul>
+              </section>
+
+              <section className="help-why">
+                <h3>💡 なぜ Markdown から文書を作るの?</h3>
+                <ul>
+                  <li>
+                    <b>AI と相性が良い</b> ― AI に Word ファイルを直接作らせるより、Markdown を書かせる方が速くて安定します。
+                  </li>
+                  <li>
+                    <b>微調整は自分の手で</b> ― 文言の直しやレイアウト調整を AI に投げ直す必要がありません。
+                  </li>
+                  <li>
+                    <b>本物の編集できる成果物</b> ― 画像貼り付けではなく、Word で開いて編集できる文書が手に入ります。
+                  </li>
+                  <li>
+                    <b>ブラウザだけで完結・無料</b> ― サーバーへ送信せず手元で処理するので、内容が外部に上がりません。
+                  </li>
+                </ul>
+              </section>
+
+              <p className="help-note">
+                編集内容は自動保存され、リロードしても続きから再開できます。最初の状態に戻すには <b>「🔄 初期化」</b>。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
