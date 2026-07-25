@@ -16,9 +16,10 @@ import {
   LevelFormat,
   ExternalHyperlink,
   Textbox,
+  LineRuleType,
 } from 'docx'
 import { toHex } from './deck'
-import type { DocBox } from './docBox'
+import { DEFAULT_BOX_LINE_HEIGHT, type DocBox } from './docBox'
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(markdownItCjkFriendly)
 
@@ -85,6 +86,10 @@ export async function exportHtmlToDocx(html: string, boxes: DocBox[] = [], optio
 const PX_TO_PT = 0.75 // 96dpi CSS pixels → points
 
 function textboxFromBox(box: DocBox, root: HTMLElement, images: ImageMap): Textbox {
+  // CSS line-height k = k × font-size, while a Word "single" line is already about
+  // 1.2 × font-size — so a Word multiple of k/1.2 matches the on-screen spacing.
+  // Word multiples are in 240ths: 240 × (k / 1.2) = 200 × k.
+  const lineHeight = box.lineHeight ?? DEFAULT_BOX_LINE_HEIGHT
   return new Textbox({
     style: {
       position: 'absolute',
@@ -95,6 +100,7 @@ function textboxFromBox(box: DocBox, root: HTMLElement, images: ImageMap): Textb
       width: `${Math.round(box.w * PX_TO_PT)}pt`,
       height: `${Math.round(box.h * PX_TO_PT)}pt`,
     },
+    spacing: { line: Math.round(200 * lineHeight), lineRule: LineRuleType.AUTO },
     children: runsFromBoxDom(root, images),
   })
 }

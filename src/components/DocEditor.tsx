@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AttachedImages } from '../lib/imageAttach'
-import { newDocBox, type DocBox } from '../lib/docBox'
+import { newDocBox, DEFAULT_BOX_LINE_HEIGHT, type DocBox } from '../lib/docBox'
 
 interface Props {
   /** Initial document HTML. Seeded into the editable area once on mount. */
@@ -39,6 +39,8 @@ const FONT_OPTIONS: { value: string; label: string }[] = [
 ]
 
 const COLORS = ['111111', 'E11D48', '2563EB', '059669', 'D97706', '7C3AED', '6B7280', 'FFFFFF']
+
+const LINE_HEIGHT_OPTIONS = [1.0, 1.15, 1.3, 1.45, 1.6, 1.8, 2.0]
 
 // Alignment icon shared with Deckdown's visual editor (rows of bars).
 type Align = 'left' | 'center' | 'right'
@@ -608,6 +610,21 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         <div className="det-group">
           {btn('▦', '表を挿入', insertTable)}
           {btn('＋テキストボックス', 'テキストボックスを追加', addBox, false, 'det-box-add')}
+          {selectedBoxId && (
+            <select
+              className="det-select"
+              aria-label="行間"
+              title="選択しているテキストボックスの行間"
+              value={String(boxes.find((b) => b.id === selectedBoxId)?.lineHeight ?? DEFAULT_BOX_LINE_HEIGHT)}
+              onChange={(e) => patchBox(selectedBoxId, { lineHeight: Number(e.target.value) })}
+            >
+              {LINE_HEIGHT_OPTIONS.map((v) => (
+                <option key={v} value={String(v)}>
+                  行間 {v.toFixed(2).replace(/0$/, '').replace(/\.$/, '')}
+                </option>
+              ))}
+            </select>
+          )}
           {selectedBoxId &&
             btn(
               '🗑 選択しているテキストボックスを削除',
@@ -731,6 +748,7 @@ function DocBoxView({ box, selected, editing, onSelect, onStartMove, onStartResi
           ref={bodyRef}
           className="doc-box-body"
           data-box-id={box.id}
+          style={{ lineHeight: box.lineHeight ?? DEFAULT_BOX_LINE_HEIGHT }}
           contentEditable
           suppressContentEditableWarning
           spellCheck={false}
@@ -751,7 +769,11 @@ function DocBoxView({ box, selected, editing, onSelect, onStartMove, onStartResi
           }}
         />
       ) : (
-        <div className="doc-box-body" dangerouslySetInnerHTML={{ __html: box.html || '<span style="opacity:.5">ダブルクリックで編集</span>' }} />
+        <div
+          className="doc-box-body"
+          style={{ lineHeight: box.lineHeight ?? DEFAULT_BOX_LINE_HEIGHT }}
+          dangerouslySetInnerHTML={{ __html: box.html || '<span style="opacity:.5">ダブルクリックで編集</span>' }}
+        />
       )}
       {selected && (
         <>

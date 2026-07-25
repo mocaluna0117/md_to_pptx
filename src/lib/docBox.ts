@@ -11,7 +11,11 @@ export interface DocBox {
   h: number
   /** Rich-text HTML of the box body (contentEditable). */
   html: string
+  /** Line spacing as a unitless line-height multiplier (default 1.6). */
+  lineHeight?: number
 }
+
+export const DEFAULT_BOX_LINE_HEIGHT = 1.6
 
 let counter = 0
 
