@@ -245,12 +245,16 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     return clone.innerHTML
   }
 
+  // Total pages in page view (drives the last page's number in the footer).
+  const [pageCount, setPageCount] = useState(1)
+
   const paginate = () => {
     const el = editorRef.current
     if (!el) return
     el.querySelectorAll(':scope > .page-spacer').forEach((n) => n.remove())
     if (!pageView) {
       el.style.minHeight = ''
+      setPageCount(1)
       return
     }
     let pageNo = 1
@@ -273,8 +277,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         const spacer = document.createElement('div')
         spacer.className = 'page-spacer'
         spacer.setAttribute('contenteditable', 'false')
+        // The fill closes the ENDING page — its page number (pageNo − 1) sits there.
+        const num = pageNumbers ? `<div class="psp-num">${pageNo - 1}</div>` : ''
         spacer.innerHTML =
-          `<div class="psp-fill" style="height:${Math.max(0, limit - top)}px"></div>` +
+          `<div class="psp-fill" style="height:${Math.max(0, limit - top)}px">${num}</div>` +
           `<div class="psp-gap"><span>${pageNo} ページ</span></div>`
         el.insertBefore(spacer, child)
         // Fresh measure: the new page starts where the pushed block now sits.
@@ -292,6 +298,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     }
     // Fill the last page so the sheet ends on a full-page edge.
     el.style.minHeight = `${limit}px`
+    setPageCount(pageNo)
   }
   const paginateRef = useRef(paginate)
   paginateRef.current = paginate
@@ -329,7 +336,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       if (timer) window.clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageView, reflowKey])
+  }, [pageView, reflowKey, pageNumbers])
 
   // Live TOC entries (heading levels 1–3), kept in sync with the editable DOM.
   const [tocItems, setTocItems] = useState<{ level: number; text: string }[]>([])
@@ -969,7 +976,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
           )}
           {pageNumbers && (
             <div className="doc-footer-preview" aria-hidden>
-              1
+              {pageView ? pageCount : 1}
             </div>
           )}
           <div
