@@ -15,11 +15,20 @@
 }
 
 .home-title {
-  margin: 0 0 8px;
-  font-size: 30px;
+  margin: 0 0 4px;
+  font-size: 34px;
   font-weight: 800;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
   color: var(--text);
+}
+
+/* "Markdown → Office" strapline under the app name. */
+.home-tagline {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--accent);
 }
 
 .home-sub {

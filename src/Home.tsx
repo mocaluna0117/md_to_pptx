@@ -34,7 +34,8 @@ export default function Home() {
   return (
     <div className="home">
       <div className="home-inner">
-        <h1 className="home-title">Markdown → Office</h1>
+        <h1 className="home-title">Markport</h1>
+        <p className="home-tagline">Markdown → Office</p>
         <p className="home-sub">
           Markdown を、そのまま編集できる PowerPoint / Word に。ブラウザだけで完結し、内容は外部に送信しません。
         </p>
