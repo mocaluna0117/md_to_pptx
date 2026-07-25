@@ -495,11 +495,13 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     if (!boxRedo()) exec('redo')
   }
 
+  // data-tip (Deckdown's CSS tooltip, 0.5s delay) instead of the native title
+  // attribute, whose browser-controlled delay is noticeably slower.
   const btn = (label: React.ReactNode, title: string, onClick: () => void, isActive = false, extraClass = '') => (
     <button
       type="button"
       className={`det-btn${isActive ? ' active' : ''}${extraClass ? ' ' + extraClass : ''}`}
-      title={title}
+      data-tip={title}
       aria-label={title}
       aria-pressed={isActive}
       onMouseDown={(e) => e.preventDefault()}
@@ -518,19 +520,22 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         </div>
 
         <div className="det-group">
-          <select
-            className="det-select"
-            aria-label="段落スタイル"
-            value={active.block}
-            onMouseDown={() => restore()}
-            onChange={(e) => setBlock(e.target.value)}
-          >
-            {BLOCK_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          {/* selects can't render ::after tooltips — wrap them (like Deckdown's .vtipwrap) */}
+          <span className="vtipwrap" data-tip="段落スタイル（見出し・引用など）">
+            <select
+              className="det-select"
+              aria-label="段落スタイル"
+              value={active.block}
+              onMouseDown={() => restore()}
+              onChange={(e) => setBlock(e.target.value)}
+            >
+              {BLOCK_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </span>
         </div>
 
         <div className="det-group">
@@ -543,22 +548,24 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         <div className="det-group">
           {btn('A−', '文字を小さく', () => changeFontSize(-1))}
           {btn('A＋', '文字を大きく', () => changeFontSize(1))}
-          <select
-            className="det-select"
-            aria-label="フォント"
-            defaultValue=""
-            onMouseDown={() => restore()}
-            onChange={(e) => {
-              if (e.target.value) exec('fontName', e.target.value, true)
-              e.target.value = ''
-            }}
-          >
-            {FONT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <span className="vtipwrap" data-tip="フォント（選択範囲に適用）">
+            <select
+              className="det-select"
+              aria-label="フォント"
+              defaultValue=""
+              onMouseDown={() => restore()}
+              onChange={(e) => {
+                if (e.target.value) exec('fontName', e.target.value, true)
+                e.target.value = ''
+              }}
+            >
+              {FONT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </span>
         </div>
 
         <div className="det-group det-colors">
@@ -567,7 +574,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
               key={c}
               type="button"
               className="det-swatch"
-              title={`文字色 #${c}`}
+              data-tip={`文字色 #${c}`}
               aria-label={`文字色 #${c}`}
               style={{ background: `#${c}`, ...(c === 'FFFFFF' ? { boxShadow: 'inset 0 0 0 1px #ccc' } : {}) }}
               onMouseDown={(e) => e.preventDefault()}
@@ -611,19 +618,20 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
           {btn('▦', '表を挿入', insertTable)}
           {btn('＋テキストボックス', 'テキストボックスを追加', addBox, false, 'det-box-add')}
           {selectedBoxId && (
-            <select
-              className="det-select"
-              aria-label="行間"
-              title="選択しているテキストボックスの行間"
-              value={String(boxes.find((b) => b.id === selectedBoxId)?.lineHeight ?? DEFAULT_BOX_LINE_HEIGHT)}
-              onChange={(e) => patchBox(selectedBoxId, { lineHeight: Number(e.target.value) })}
-            >
-              {LINE_HEIGHT_OPTIONS.map((v) => (
-                <option key={v} value={String(v)}>
-                  行間 {v.toFixed(2).replace(/0$/, '').replace(/\.$/, '')}
-                </option>
-              ))}
-            </select>
+            <span className="vtipwrap" data-tip="選択しているテキストボックスの行間">
+              <select
+                className="det-select"
+                aria-label="行間"
+                value={String(boxes.find((b) => b.id === selectedBoxId)?.lineHeight ?? DEFAULT_BOX_LINE_HEIGHT)}
+                onChange={(e) => patchBox(selectedBoxId, { lineHeight: Number(e.target.value) })}
+              >
+                {LINE_HEIGHT_OPTIONS.map((v) => (
+                  <option key={v} value={String(v)}>
+                    行間 {v.toFixed(2).replace(/0$/, '').replace(/\.$/, '')}
+                  </option>
+                ))}
+              </select>
+            </span>
           )}
           {selectedBoxId &&
             btn(
