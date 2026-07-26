@@ -164,6 +164,7 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
       sy: number
       orig: { x: number; y: number; w: number; h: number }
       key: number
+      moved?: boolean
     }
   >(null)
   const keyCounterRef = useRef(0)
@@ -216,6 +217,10 @@ export default function VisualEditor({ deck, onChange, onRegenerate, onUndo, onR
       }
       const d = dragRef.current
       if (!d) return
+      // Dead zone: jitter within a click must not move (or snap!) the element —
+      // otherwise a slightly-wobbly double-click breaks and text editing never opens.
+      if (!d.moved && Math.abs(e.clientX - d.sx) < 4 && Math.abs(e.clientY - d.sy) < 4) return
+      d.moved = true
       const dx = (e.clientX - d.sx) / ppiRef.current
       const dy = (e.clientY - d.sy) / ppiRef.current
       if (d.mode === 'move') {

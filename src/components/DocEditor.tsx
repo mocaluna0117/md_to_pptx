@@ -170,7 +170,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const boxesRef = useRef(boxes)
   boxesRef.current = boxes
   const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; key: number } | null>(null)
+  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; key: number; moved?: boolean } | null>(null)
 
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
@@ -209,6 +209,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault()
         deleteBox(id)
+      } else if (e.key === 'Enter' || e.key === 'F2') {
+        e.preventDefault()
+        startEditBox(id)
       } else if (e.key === 'Escape') {
         setSelectedBoxId(null)
       }
@@ -694,6 +697,13 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     if (editingBoxId === id) setEditingBoxId(null)
   }
 
+  /** Enter a box's text-editing mode (one editing session = one undo step). */
+  function startEditBox(id: string) {
+    editSessionKeyRef.current = keyCounterRef.current += 1
+    setSelectedBoxId(id)
+    setEditingBoxId(id)
+  }
+
   // NB: stopPropagation only — preventDefault on pointerdown would suppress the
   // compat mouse events, breaking double-click-to-edit and the ✕ button's click
   // (Deckdown's startDrag works the same way). Text selection during a drag is
@@ -726,6 +736,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     if (!d) return
     const dx = e.clientX - d.sx
     const dy = e.clientY - d.sy
+    // Dead zone: jitter within a click must not move (or snap!) the box —
+    // otherwise a slightly-wobbly double-click breaks and editing never opens.
+    if (!d.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+    d.moved = true
     if (d.mode === 'move') {
       const px = Math.max(0, Math.round(d.ox + dx))
       const py = Math.max(0, Math.round(d.oy + dy))
@@ -1003,12 +1017,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
                 onSelect={() => setSelectedBoxId(box.id)}
                 onStartMove={(e) => startBoxGesture(e, box, 'move')}
                 onStartResize={(e) => startBoxGesture(e, box, 'resize')}
-                onEdit={() => {
-                  // One editing session = one undo step (typing inside still has native undo).
-                  editSessionKeyRef.current = keyCounterRef.current += 1
-                  setSelectedBoxId(box.id)
-                  setEditingBoxId(box.id)
-                }}
+                onEdit={() => startEditBox(box.id)}
                 onStopEdit={(nextHtml) => {
                   patchBox(box.id, { html: nextHtml }, editSessionKeyRef.current ?? undefined)
                   setEditingBoxId(null)
@@ -1121,6 +1130,24 @@ function DocBoxView({ box, selected, editing, onSelect, onStartMove, onStartResi
       {selected && (
         <>
           {/* pointerdown must not reach the box, or a move-drag starts and swallows the click. */}
+          {!editing && (
+            <button
+              className="doc-box-edit"
+              title="文字を編集（ダブルクリック / Enter でも編集できます）"
+              aria-label="文字を編集"
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit()
+              }}
+            >
+              ✎
+            </button>
+          )}
           <button
             className="doc-box-del"
             title="ボックスを削除（Backspace / Delete でも削除できます）"

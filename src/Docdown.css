@@ -370,6 +370,26 @@ body.doc-box-gesture * {
   user-select: none !important;
 }
 
+/* Enter-editing button on the selected box, left of the ✕. */
+.doc-box-edit {
+  position: absolute;
+  top: -11px;
+  right: 16px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
 .doc-box-del {
   position: absolute;
   top: -11px;
