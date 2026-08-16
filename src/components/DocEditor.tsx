@@ -171,6 +171,8 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   boxesRef.current = boxes
   const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; key: number; moved?: boolean } | null>(null)
+  // Column-width drag: the table, which border, and the widths (%) when the drag started.
+  const colDragRef = useRef<{ table: HTMLTableElement; index: number; startX: number; widths: number[]; tableW: number } | null>(null)
 
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
@@ -525,6 +527,106 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const head = `<tr>${Array.from({ length: cols }, (_, c) => `<th>見出し${c + 1}</th>`).join('')}</tr>`
     const body = `<tr>${Array.from({ length: cols }, () => '<td>&nbsp;</td>').join('')}</tr>`
     exec('insertHTML', `<table><thead>${head}</thead><tbody>${body}</tbody></table><p><br></p>`)
+  }
+
+  // ---- Column widths (drag a column border; widths live in the table's <colgroup>) ----
+
+  /** Number of columns = widest row (tables here have no colspan). */
+  function colCount(table: HTMLTableElement): number {
+    return Math.max(1, ...Array.from(table.querySelectorAll('tr')).map((tr) => tr.children.length))
+  }
+
+  /**
+   * Current column widths as percentages. Read from <colgroup> when present,
+   * otherwise measured from the rendered first row so a drag starts from what
+   * the user actually sees.
+   */
+  function readColWidths(table: HTMLTableElement): number[] {
+    const n = colCount(table)
+    const cols = Array.from(table.querySelectorAll('col'))
+    if (cols.length === n) {
+      const pct = cols.map((c) => parseFloat((c as HTMLElement).style.width))
+      const sum = pct.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0)
+      if (pct.every((p) => Number.isFinite(p) && p > 0) && sum > 0) return pct.map((p) => (p / sum) * 100)
+    }
+    const row = table.querySelector('tr')
+    const total = table.getBoundingClientRect().width || 1
+    const cells = row ? Array.from(row.children) : []
+    if (cells.length === n) {
+      return cells.map((c) => (c.getBoundingClientRect().width / total) * 100)
+    }
+    return Array(n).fill(100 / n)
+  }
+
+  /** Write widths back as a <colgroup> so they survive export and re-render. */
+  function writeColWidths(table: HTMLTableElement, pct: number[]) {
+    let group = table.querySelector('colgroup')
+    if (!group) {
+      group = document.createElement('colgroup')
+      table.insertBefore(group, table.firstChild)
+    }
+    while (group.children.length > pct.length) group.lastElementChild?.remove()
+    while (group.children.length < pct.length) group.appendChild(document.createElement('col'))
+    pct.forEach((p, i) => {
+      ;(group!.children[i] as HTMLElement).style.width = `${p.toFixed(3)}%`
+    })
+    // table-layout:fixed makes the browser honour the column widths exactly.
+    table.style.tableLayout = 'fixed'
+    table.style.width = '100%'
+  }
+
+  /** Start a column-resize drag from a pointerdown near a cell's right border. */
+  function startColResize(e: React.PointerEvent, cell: HTMLTableCellElement, index: number) {
+    const table = cell.closest('table') as HTMLTableElement | null
+    if (!table) return
+    e.preventDefault()
+    e.stopPropagation()
+    const widths = readColWidths(table)
+    if (index >= widths.length - 1) return // the last border is the table edge
+    const tableW = table.getBoundingClientRect().width || 1
+    colDragRef.current = { table, index, startX: e.clientX, widths, tableW }
+    document.body.classList.add('doc-col-resizing')
+    window.addEventListener('pointermove', onColResizeMove)
+    window.addEventListener('pointerup', onColResizeUp)
+  }
+  function onColResizeMove(e: PointerEvent) {
+    const d = colDragRef.current
+    if (!d) return
+    const deltaPct = ((e.clientX - d.startX) / d.tableW) * 100
+    const min = 5 // never let a column collapse
+    const pair = d.widths[d.index] + d.widths[d.index + 1]
+    const left = Math.max(min, Math.min(pair - min, d.widths[d.index] + deltaPct))
+    const next = d.widths.slice()
+    next[d.index] = left
+    next[d.index + 1] = pair - left
+    writeColWidths(d.table, next)
+  }
+  function onColResizeUp() {
+    if (!colDragRef.current) return
+    colDragRef.current = null
+    document.body.classList.remove('doc-col-resizing')
+    window.removeEventListener('pointermove', onColResizeMove)
+    window.removeEventListener('pointerup', onColResizeUp)
+    // Commit the flow HTML directly: a column drag never places a caret, so
+    // syncActive()'s "last active surface" may still be unset.
+    if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
+  }
+
+  /**
+   * Cursor affordance + drag start for column borders. Bound on the editable surface
+   * (tables come from user HTML, so per-cell React handlers aren't an option).
+   */
+  const COL_GRAB_PX = 5
+  function cellBorderHit(e: React.PointerEvent | React.MouseEvent): { cell: HTMLTableCellElement; index: number } | null {
+    const target = e.target as HTMLElement | null
+    const cell = target?.closest('td, th') as HTMLTableCellElement | null
+    if (!cell) return null
+    const r = cell.getBoundingClientRect()
+    if (e.clientX < r.right - COL_GRAB_PX) return null
+    const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
+    const table = cell.closest('table') as HTMLTableElement | null
+    if (!table || index >= colCount(table) - 1) return null
+    return { cell, index }
   }
 
   // ---- Table structural edits (operate on the cell containing the caret) ----
@@ -1004,6 +1106,17 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
               if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
             }}
             onMouseDown={() => setSelectedBoxId(null)}
+            onPointerDown={(e) => {
+              const hit = cellBorderHit(e)
+              if (hit) startColResize(e, hit.cell, hit.index)
+            }}
+            onMouseMove={(e) => {
+              // Show the resize cursor only while hovering a draggable column border.
+              const el = editorRef.current
+              if (!el || colDragRef.current) return
+              el.classList.toggle('col-grab', !!cellBorderHit(e))
+            }}
+            onMouseLeave={() => editorRef.current?.classList.remove('col-grab')}
           />
           <div className="doc-box-layer">
             {guides.v != null && <div className="doc-guide doc-guide-v" style={{ left: guides.v }} aria-hidden />}

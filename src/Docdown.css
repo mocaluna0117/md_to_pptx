@@ -128,6 +128,26 @@
   text-align: left;
   vertical-align: top;
 }
+/* Column widths set by dragging live in <colgroup>; fixed layout honours them. */
+.doc-page table:has(> colgroup) {
+  table-layout: fixed;
+}
+.doc-page td,
+.doc-page th {
+  overflow-wrap: anywhere;
+}
+
+/* Cursor while hovering a draggable column border, and during the drag itself. */
+.doc-editable.col-grab,
+.doc-editable.col-grab * {
+  cursor: col-resize;
+}
+body.doc-col-resizing,
+body.doc-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 .doc-page th {
   background: #eef2f7;
   font-weight: 700;

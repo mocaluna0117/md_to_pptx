@@ -11,6 +11,7 @@ import {
   Table,
   TableRow,
   TableCell,
+  TableLayoutType,
   WidthType,
   BorderStyle,
   LevelFormat,
@@ -603,13 +604,26 @@ function processListItem(li: HTMLElement, ctx: DomCtx, images: ImageMap, out: Bl
   }
 }
 
+/** Column width percentages from a table's <colgroup> (undefined = let Word auto-size). */
+function colWidthsFromDom(table: HTMLElement): number[] | undefined {
+  const cols = Array.from(table.querySelectorAll('col'))
+  if (cols.length === 0) return undefined
+  const pct = cols.map((c) => parseFloat((c as HTMLElement).style.width))
+  if (!pct.every((p) => Number.isFinite(p) && p > 0)) return undefined
+  const sum = pct.reduce((a, b) => a + b, 0)
+  if (sum <= 0) return undefined
+  return pct.map((p) => (p / sum) * 100)
+}
+
 function tableFromDom(table: HTMLElement, images: ImageMap): Table {
+  const widths = colWidthsFromDom(table)
   const rows: TableRow[] = []
   for (const tr of Array.from(table.querySelectorAll('tr'))) {
     const cells: TableCell[] = []
     for (const cell of Array.from(tr.children)) {
       if (cell.tagName !== 'TD' && cell.tagName !== 'TH') continue
       const header = cell.tagName === 'TH'
+      const index = cells.length
       cells.push(
         new TableCell({
           children: [
@@ -618,6 +632,8 @@ function tableFromDom(table: HTMLElement, images: ImageMap): Table {
               children: inlineFromNodes(Array.from(cell.childNodes), images, header ? { bold: true } : {}),
             }),
           ],
+          // Per-cell width mirrors the column widths dragged in the editor.
+          width: widths?.[index] ? { size: widths[index], type: WidthType.PERCENTAGE } : undefined,
           shading: header ? { fill: 'EEF2F7' } : undefined,
           margins: { top: 60, bottom: 60, left: 110, right: 110 },
         }),
@@ -629,6 +645,8 @@ function tableFromDom(table: HTMLElement, images: ImageMap): Table {
   return new Table({
     rows,
     width: { size: 100, type: WidthType.PERCENTAGE },
+    // Fixed layout so Word honours the explicit column widths (auto-fit would override them).
+    ...(widths ? { layout: TableLayoutType.FIXED, columnWidths: widths.map((p) => Math.round((p / 100) * 9026)) } : {}),
     borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
   })
 }
