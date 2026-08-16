@@ -108,6 +108,7 @@ export async function exportHtmlToDocx(html: string, boxes: DocBox[] = [], optio
   const images = await resolveImageSrcs(srcs)
   // Math images carrying their LaTeX source become native Word equations (OMML).
   mathOmml = await buildMathOmml([root, ...boxRoots])
+  contentTwips = contentWidthTwips(settings?.margin)
   try {
     const children = blocksFromDom(root, { n: 0 }, images)
     // Text boxes are prepended so their anchor paragraph sits on the first page,
@@ -121,6 +122,16 @@ export async function exportHtmlToDocx(html: string, boxes: DocBox[] = [], optio
 
 // OMML per math <img>, valid for the duration of one export call (exports never overlap).
 let mathOmml: WeakMap<Element, string> | null = null
+
+/**
+ * Printable text width in twips for the current export's page setup (A4 minus its
+ * margins). Tables convert their percentage widths against this to build an absolute
+ * Word column grid, so it must track the chosen margin preset — not a fixed constant.
+ */
+let contentTwips = contentWidthTwips()
+function contentWidthTwips(margin: DocSettings['margin'] = 'normal'): number {
+  return convertMillimetersToTwip(210) - 2 * convertMillimetersToTwip(DOC_MARGINS_MM[margin ?? 'normal'])
+}
 
 /** Convert each math image's LaTeX (data-tex) to an OMML string, keyed by element. */
 async function buildMathOmml(roots: HTMLElement[]): Promise<WeakMap<Element, string>> {
@@ -582,32 +593,64 @@ function walkBlocks(parent: Node, ctx: DomCtx, images: ImageMap, out: Block[]): 
   flush()
 }
 
-/** A list item becomes one list paragraph for its inline content, plus any nested lists. */
+/** A list item becomes one list paragraph for its inline content, plus any nested blocks. */
 function processListItem(li: HTMLElement, ctx: DomCtx, images: ImageMap, out: Block[]): void {
   const inlineNodes: Node[] = []
-  const nestedLists: HTMLElement[] = []
+  const blocks: HTMLElement[] = [] // nested lists AND tables, in source order
   for (const node of Array.from(li.childNodes)) {
-    if (node.nodeType === Node.ELEMENT_NODE && ((node as Element).tagName === 'UL' || (node as Element).tagName === 'OL')) {
-      nestedLists.push(node as HTMLElement)
-    } else {
-      inlineNodes.push(node)
-    }
+    const tag = node.nodeType === Node.ELEMENT_NODE ? (node as Element).tagName : ''
+    // A nested table must stay a table: the inline walker has no TABLE case and
+    // would flatten every cell into run-together text.
+    if (tag === 'UL' || tag === 'OL' || tag === 'TABLE') blocks.push(node as HTMLElement)
+    else inlineNodes.push(node)
   }
   out.push(paragraphInContext(inlineFromNodes(inlineNodes, images, {}), ctx.listStack, ctx.quoteDepth))
-  for (const list of nestedLists) {
-    const ordered = list.tagName === 'OL'
+  for (const el of blocks) {
+    if (el.tagName === 'TABLE') {
+      out.push(tableFromDom(el, images))
+      continue
+    }
+    const ordered = el.tagName === 'OL'
     const frame: ListFrame = { ordered, instance: ordered ? (ctx.oc.n += 1) : 0 }
     const inner: DomCtx = { ...ctx, listStack: [...ctx.listStack, frame] }
-    for (const nested of Array.from(list.children)) {
+    for (const nested of Array.from(el.children)) {
       if (nested.tagName === 'LI') processListItem(nested as HTMLElement, inner, images, out)
     }
   }
+}
+
+/** The table's own span (set by dragging its outer edges), as % of the content width. */
+function tableGeomFromDom(table: HTMLElement): { widthPct: number; indentPct: number } {
+  // Only a percentage is ours; a cm/pt/px width comes from pasted or raw HTML and
+  // must not be reinterpreted as a percentage (16.51cm is not 16.51%).
+  const pct = (v: string) => (v.trim().endsWith('%') ? parseFloat(v) : NaN)
+  const w = pct(table.style.width)
+  const m = pct(table.style.marginLeft)
+  const widthPct = Number.isFinite(w) && w > 0 ? Math.min(100, w) : 100
+  const indentPct = Number.isFinite(m) && m > 0 ? Math.min(100 - widthPct, m) : 0
+  return { widthPct, indentPct }
+}
+
+/**
+ * Column grid in twips for a table of `tableTwip` total width. Rounding drift is
+ * absorbed by the last column so the grid sums to exactly the table width — Word
+ * resolves a mismatch between w:tblGrid and w:tblW unpredictably.
+ */
+function gridTwips(pct: number[], tableTwip: number): number[] {
+  const out = pct.map((p) => Math.max(1, Math.round((p / 100) * tableTwip)))
+  const drift = tableTwip - out.reduce((a, b) => a + b, 0)
+  out[out.length - 1] = Math.max(1, out[out.length - 1] + drift)
+  return out
 }
 
 /** Column width percentages from a table's <colgroup> (undefined = let Word auto-size). */
 function colWidthsFromDom(table: HTMLElement): number[] | undefined {
   const cols = Array.from(table.querySelectorAll('col'))
   if (cols.length === 0) return undefined
+  // A colgroup left stale by an older structural edit would produce a grid that
+  // disagrees with the cells; let Word auto-size instead of emitting a mismatch.
+  const maxCells = Math.max(0, ...Array.from(table.querySelectorAll('tr')).map((tr) => tr.children.length))
+  if (cols.length !== maxCells) return undefined
   const pct = cols.map((c) => parseFloat((c as HTMLElement).style.width))
   if (!pct.every((p) => Number.isFinite(p) && p > 0)) return undefined
   const sum = pct.reduce((a, b) => a + b, 0)
@@ -642,11 +685,17 @@ function tableFromDom(table: HTMLElement, images: ImageMap): Table {
     if (cells.length) rows.push(new TableRow({ children: cells }))
   }
   const border = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' }
+  const { widthPct, indentPct } = tableGeomFromDom(table)
+  const tableTwip = Math.round((contentTwips * widthPct) / 100)
   return new Table({
     rows,
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    // Fixed layout so Word honours the explicit column widths (auto-fit would override them).
-    ...(widths ? { layout: TableLayoutType.FIXED, columnWidths: widths.map((p) => Math.round((p / 100) * 9026)) } : {}),
+    width: { size: widthPct, type: WidthType.PERCENTAGE },
+    // Left offset from dragging the table's left edge. DXA (twips) is what Word
+    // honours reliably; leave `alignment` unset, since w:jc would override w:tblInd.
+    ...(indentPct > 0 ? { indent: { size: Math.round((contentTwips * indentPct) / 100), type: WidthType.DXA } } : {}),
+    // Fixed layout so Word honours the explicit column widths (auto-fit would override
+    // them). The grid is scaled to the table's own width, not the full content width.
+    ...(widths ? { layout: TableLayoutType.FIXED, columnWidths: gridTwips(widths, tableTwip) } : {}),
     borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
   })
 }

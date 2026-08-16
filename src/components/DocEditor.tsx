@@ -36,6 +36,19 @@ interface Props {
 const PAGE_CONTENT_H = Math.floor((281 * 96) / 25.4 / 0.9647) - 24
 
 /** Distance (px) within which a dragged box edge/center snaps to a guide line. */
+/** A CSS length is only ours to interpret when it is a percentage. */
+function stylePct(v: string): number {
+  return v.trim().endsWith('%') ? parseFloat(v) : NaN
+}
+
+/** A grabbable table border: an interior column boundary, or the table's own left/right edge. */
+interface EdgeHit {
+  table: HTMLTableElement
+  kind: 'left' | 'inner' | 'right'
+  /** For 'inner', the column whose right border is grabbed; else the end column. */
+  index: number
+}
+
 const SNAP_PX = 6
 
 /**
@@ -171,8 +184,24 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   boxesRef.current = boxes
   const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; key: number; moved?: boolean } | null>(null)
-  // Column-width drag: the table, which border, and the widths (%) when the drag started.
-  const colDragRef = useRef<{ table: HTMLTableElement; index: number; startX: number; widths: number[]; tableW: number } | null>(null)
+  // Column/table-edge drag state captured when the drag starts.
+  const colDragRef = useRef<
+    | (EdgeHit & {
+        startX: number
+        /** Column widths (% of the table) at drag start. */
+        widths: number[]
+        /** Rendered table width (px) at drag start. */
+        tableW: number
+        /** Containing-block width (px) that the table's % width/margin resolve against. */
+        hostW: number
+        /** The table's own span at drag start, as % of the containing block. */
+        widthPct: number
+        indentPct: number
+        /** Set once the pointer has actually moved, so a plain click changes nothing. */
+        moved: boolean
+      })
+    | null
+  >(null)
 
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
@@ -549,7 +578,12 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       const sum = pct.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0)
       if (pct.every((p) => Number.isFinite(p) && p > 0) && sum > 0) return pct.map((p) => (p / sum) * 100)
     }
-    const row = table.querySelector('tr')
+    // Measure the widest row — the one that spans every column. A first row shortened
+    // by a colspan would otherwise fall through to a fabricated equal split.
+    const row = Array.from(table.querySelectorAll('tr')).reduce<HTMLTableRowElement | null>(
+      (a, b) => (!a || b.children.length > a.children.length ? (b as HTMLTableRowElement) : a),
+      null,
+    )
     const total = table.getBoundingClientRect().width || 1
     const cells = row ? Array.from(row.children) : []
     if (cells.length === n) {
@@ -572,61 +606,221 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     })
     // table-layout:fixed makes the browser honour the column widths exactly.
     table.style.tableLayout = 'fixed'
-    table.style.width = '100%'
+    // Only seed the default span; never clobber a width set by an outer-edge drag.
+    if (!table.style.width) table.style.width = '100%'
   }
 
-  /** Start a column-resize drag from a pointerdown near a cell's right border. */
-  function startColResize(e: React.PointerEvent, cell: HTMLTableCellElement, index: number) {
-    const table = cell.closest('table') as HTMLTableElement | null
-    if (!table) return
+  /**
+   * Keep <colgroup> in step with a structural column insert/remove. Without this the
+   * grid, the cells and the table width describe three different tables — visible as a
+   * hairline new column, and as a mismatched w:tblGrid in the exported .docx.
+   */
+  function syncColGroup(table: HTMLTableElement, index: number, mode: 'add' | 'del') {
+    if (!table.querySelector('colgroup')) return // no explicit widths: nothing to sync
+    const pct = Array.from(table.querySelectorAll('col')).map((c) => parseFloat((c as HTMLElement).style.width) || 0)
+    if (mode === 'add') {
+      // The new column splits the one it was inserted after: the table's span is unchanged.
+      const half = (pct[index] ?? 100 / (pct.length + 1)) / 2
+      if (pct[index] !== undefined) pct[index] = half
+      pct.splice(index + 1, 0, half)
+    } else {
+      pct.splice(index, 1)
+    }
+    const sum = pct.reduce((a, b) => a + b, 0) || 1
+    writeColWidths(table, pct.map((p) => (p / sum) * 100))
+  }
+
+  /** Width of the block that a table's percentage width/margin resolve against. */
+  function hostWidth(table: HTMLTableElement): number {
+    const host = table.parentElement as HTMLElement | null
+    if (!host) return table.getBoundingClientRect().width || 1
+    const cs = getComputedStyle(host)
+    const w = host.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0')
+    return w > 0 ? w : table.getBoundingClientRect().width || 1
+  }
+
+  /** The table's own span: width and left offset as % of its containing block. */
+  function readTableGeom(table: HTMLTableElement, hostW: number): { widthPct: number; indentPct: number } {
+    // Only a percentage may be taken at face value. A length in px/pt — raw HTML in
+    // the Markdown, or a table pasted from Word/Excel — would otherwise be read as
+    // that many PERCENT and fling the table off the sheet, so measure it instead.
+    const w = stylePct(table.style.width)
+    const m = stylePct(table.style.marginLeft)
+    const r = table.getBoundingClientRect()
+    const host = table.parentElement
+    // clientLeft is the host's left border: getBoundingClientRect() measures the border
+    // box, so omitting it would report a 1px indent for a table that has none.
+    const hostLeft = host
+      ? host.getBoundingClientRect().left + host.clientLeft + parseFloat(getComputedStyle(host).paddingLeft || '0')
+      : r.left
+    return {
+      widthPct: Number.isFinite(w) && w > 0 ? w : Math.min(100, (r.width / hostW) * 100),
+      indentPct: Number.isFinite(m) && m > 0 ? m : Math.max(0, ((r.left - hostLeft) / hostW) * 100),
+    }
+  }
+  function writeTableGeom(table: HTMLTableElement, widthPct: number, indentPct: number) {
+    table.style.width = `${widthPct.toFixed(3)}%`
+    if (indentPct > 0.001) table.style.marginLeft = `${indentPct.toFixed(3)}%`
+    else table.style.removeProperty('margin-left')
+  }
+
+  /** Start a resize drag: an interior column border, or the table's own left/right edge. */
+  function startColResize(e: React.PointerEvent, hit: EdgeHit) {
+    const { table, kind, index } = hit
+    if (e.button !== 0) return // right/middle click keeps its native behaviour
     e.preventDefault()
     e.stopPropagation()
     const widths = readColWidths(table)
-    if (index >= widths.length - 1) return // the last border is the table edge
+    if (kind === 'inner' && index >= widths.length - 1) return
     const tableW = table.getBoundingClientRect().width || 1
-    colDragRef.current = { table, index, startX: e.clientX, widths, tableW }
+    const hostW = hostWidth(table)
+    const geom = readTableGeom(table, hostW)
+    colDragRef.current = {
+      table,
+      kind,
+      index,
+      startX: e.clientX,
+      widths,
+      tableW,
+      hostW,
+      widthPct: geom.widthPct,
+      indentPct: geom.indentPct,
+      moved: false,
+    }
     document.body.classList.add('doc-col-resizing')
     window.addEventListener('pointermove', onColResizeMove)
     window.addEventListener('pointerup', onColResizeUp)
+    window.addEventListener('pointercancel', onColResizeUp)
   }
+
+  const MIN_COL_PCT = 5 // of the table
+  const MIN_TABLE_PCT = 15 // of the containing block
+
   function onColResizeMove(e: PointerEvent) {
     const d = colDragRef.current
     if (!d) return
-    const deltaPct = ((e.clientX - d.startX) / d.tableW) * 100
-    const min = 5 // never let a column collapse
-    const pair = d.widths[d.index] + d.widths[d.index + 1]
-    const left = Math.max(min, Math.min(pair - min, d.widths[d.index] + deltaPct))
-    const next = d.widths.slice()
-    next[d.index] = left
-    next[d.index + 1] = pair - left
-    writeColWidths(d.table, next)
+    const dx = e.clientX - d.startX
+    if (!d.moved) {
+      if (Math.abs(dx) < 4) return // a click with no drag must not touch the document
+      d.moved = true
+      // Materialize the colgroup from what was on screen at pointerdown, so
+      // switching to fixed layout doesn't visibly reflow the table mid-drag.
+      writeColWidths(d.table, d.widths)
+    }
+
+    if (d.kind === 'inner') {
+      // Interior border: the two adjacent columns trade width, the table doesn't move.
+      const deltaPct = (dx / d.tableW) * 100
+      const pair = d.widths[d.index] + d.widths[d.index + 1]
+      const left = Math.max(MIN_COL_PCT, Math.min(pair - MIN_COL_PCT, d.widths[d.index] + deltaPct))
+      const next = d.widths.slice()
+      next[d.index] = left
+      next[d.index + 1] = pair - left
+      writeColWidths(d.table, next)
+      return
+    }
+
+    // Outer edge (Word semantics): the opposite edge stays pinned and the end
+    // column nearest the grabbed edge absorbs the whole delta, so the other
+    // columns keep their absolute widths.
+    const px = d.widths.map((p) => (p / 100) * d.tableW)
+    const end = d.kind === 'left' ? 0 : px.length - 1
+    const minPx = (MIN_COL_PCT / 100) * d.tableW
+    const minTableW = (MIN_TABLE_PCT / 100) * d.hostW
+    const others = px.reduce((a, b) => a + b, 0) - px[end]
+
+    // A left drag shrinks the first column as it moves right; a right drag grows the last.
+    let endPx = d.kind === 'left' ? px[end] - dx : px[end] + dx
+    endPx = Math.max(minPx, endPx)
+    if (others + endPx < minTableW) endPx = minTableW - others
+
+    let tableW = others + endPx
+    let indentPx = (d.indentPct / 100) * d.hostW
+    if (d.kind === 'left') {
+      // The right edge is invariant: the indent takes exactly what the width loses.
+      const right = indentPx + (d.widthPct / 100) * d.hostW
+      indentPx = Math.max(0, right - tableW)
+      tableW = right - indentPx // clamped by indent >= 0
+    } else if (indentPx + tableW > d.hostW) {
+      tableW = d.hostW - indentPx // never spill past the right margin
+    }
+    // Belt and braces for both kinds: the span can never exceed the sheet.
+    tableW = Math.min(tableW, d.hostW - indentPx)
+    if (tableW < minTableW) tableW = minTableW
+    indentPx = Math.min(indentPx, Math.max(0, d.hostW - tableW))
+
+    // Re-derive the end column from the (possibly clamped) table width. When the other
+    // columns alone already fill it, scale them down rather than letting the end
+    // column's minimum re-inflate the table past the clamps above.
+    const nextPx = px.slice()
+    nextPx[end] = Math.max(minPx, tableW - others)
+    let sum = nextPx.reduce((a, b) => a + b, 0) || 1
+    if (sum > tableW) {
+      const k = Math.max(0, (tableW - nextPx[end]) / (others || 1))
+      nextPx.forEach((w, i) => {
+        if (i !== end) nextPx[i] = w * k
+      })
+      sum = nextPx.reduce((a, b) => a + b, 0) || 1
+    }
+    writeColWidths(d.table, nextPx.map((w) => (w / sum) * 100))
+    // The geometry must come from the clamped tableW, never from the column sum.
+    writeTableGeom(d.table, (tableW / d.hostW) * 100, (indentPx / d.hostW) * 100)
   }
+
   function onColResizeUp() {
-    if (!colDragRef.current) return
+    const d = colDragRef.current
+    if (!d) return
     colDragRef.current = null
     document.body.classList.remove('doc-col-resizing')
     window.removeEventListener('pointermove', onColResizeMove)
     window.removeEventListener('pointerup', onColResizeUp)
+    window.removeEventListener('pointercancel', onColResizeUp)
+    if (!d.moved) return // a click beside a border must not rewrite the document
     // Commit the flow HTML directly: a column drag never places a caret, so
     // syncActive()'s "last active surface" may still be unset.
     if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
+    // Style-only mutations aren't observed, and a resized table changes row
+    // heights — repaginate so page breaks stay correct.
+    paginateRef.current?.()
   }
 
   /**
-   * Cursor affordance + drag start for column borders. Bound on the editable surface
+   * Cursor affordance + drag start for table borders. Bound on the editable surface
    * (tables come from user HTML, so per-cell React handlers aren't an option).
+   *
+   * Two tiers: inside a cell we can identify the exact column border; outside any
+   * cell (the sheet padding beside a table) only the table's own rect is available —
+   * which is the only way the outer edges become grabbable at all.
    */
-  const COL_GRAB_PX = 5
-  function cellBorderHit(e: React.PointerEvent | React.MouseEvent): { cell: HTMLTableCellElement; index: number } | null {
+  const COL_GRAB_IN = 5
+  const COL_GRAB_OUT = 8
+  function edgeHit(e: React.PointerEvent | React.MouseEvent): EdgeHit | null {
     const target = e.target as HTMLElement | null
     const cell = target?.closest('td, th') as HTMLTableCellElement | null
-    if (!cell) return null
-    const r = cell.getBoundingClientRect()
-    if (e.clientX < r.right - COL_GRAB_PX) return null
-    const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
-    const table = cell.closest('table') as HTMLTableElement | null
-    if (!table || index >= colCount(table) - 1) return null
-    return { cell, index }
+    if (cell) {
+      const table = cell.closest('table') as HTMLTableElement | null
+      if (!table) return null
+      // The table's own edges win: with a colspan or a ragged row a cell's index in
+      // its row is not its column index, so only the table rect identifies an edge.
+      const tr = table.getBoundingClientRect()
+      if (Math.abs(e.clientX - tr.right) <= COL_GRAB_IN) return { table, kind: 'right', index: colCount(table) - 1 }
+      if (Math.abs(e.clientX - tr.left) <= COL_GRAB_IN) return { table, kind: 'left', index: 0 }
+      const r = cell.getBoundingClientRect()
+      const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
+      if (e.clientX >= r.right - COL_GRAB_IN && index < colCount(table) - 1) return { table, kind: 'inner', index }
+      return null
+    }
+    // Not over a cell: hit-test the outer edges against each table's own rect.
+    const editor = editorRef.current
+    if (!editor) return null
+    for (const t of Array.from(editor.querySelectorAll('table'))) {
+      const table = t as HTMLTableElement
+      const r = table.getBoundingClientRect()
+      if (e.clientY < r.top || e.clientY > r.bottom) continue
+      if (Math.abs(e.clientX - r.left) <= COL_GRAB_OUT) return { table, kind: 'left', index: 0 }
+      if (Math.abs(e.clientX - r.right) <= COL_GRAB_OUT) return { table, kind: 'right', index: colCount(table) - 1 }
+    }
+    return null
   }
 
   // ---- Table structural edits (operate on the cell containing the caret) ----
@@ -681,6 +875,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
         if (ref) ref.after(nc)
         else tr.appendChild(nc)
       }
+      syncColGroup(table, index, 'add')
     })
   }
   function delCol() {
@@ -691,6 +886,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       for (const tr of Array.from(table.querySelectorAll('tr'))) {
         tr.children[index]?.remove()
       }
+      syncColGroup(table, index, 'del')
     })
   }
 
@@ -1107,14 +1303,14 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
             }}
             onMouseDown={() => setSelectedBoxId(null)}
             onPointerDown={(e) => {
-              const hit = cellBorderHit(e)
-              if (hit) startColResize(e, hit.cell, hit.index)
+              const hit = edgeHit(e)
+              if (hit) startColResize(e, hit)
             }}
             onMouseMove={(e) => {
-              // Show the resize cursor only while hovering a draggable column border.
+              // Show the resize cursor only while hovering a draggable table border.
               const el = editorRef.current
               if (!el || colDragRef.current) return
-              el.classList.toggle('col-grab', !!cellBorderHit(e))
+              el.classList.toggle('col-grab', !!edgeHit(e))
             }}
             onMouseLeave={() => editorRef.current?.classList.remove('col-grab')}
           />
