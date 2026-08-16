@@ -756,3 +756,12 @@ body.doc-box-gesture * {
     margin: 8mm;
   }
 }
+
+.det-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.det-btn:disabled:hover {
+  border-color: var(--border);
+  color: var(--text);
+}

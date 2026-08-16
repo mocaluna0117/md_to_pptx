@@ -36,6 +36,21 @@ interface Props {
 const PAGE_CONTENT_H = Math.floor((281 * 96) / 25.4 / 0.9647) - 24
 
 /** Distance (px) within which a dragged box edge/center snaps to a guide line. */
+/** Caret position as a path of child indices from an editable surface's root. */
+interface SelPath {
+  /** null = the flowing page; otherwise the id of the text box being edited. */
+  boxId: string | null
+  path: number[]
+  offset: number
+}
+
+/** One undo step: the whole document plus where the caret was. */
+interface Snapshot {
+  flow: string
+  boxes: DocBox[]
+  sel: SelPath | null
+}
+
 /** A CSS length is only ours to interpret when it is a percentage. */
 function stylePct(v: string): number {
   return v.trim().endsWith('%') ? parseFloat(v) : NaN
@@ -183,10 +198,12 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const boxesRef = useRef(boxes)
   boxesRef.current = boxes
   const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; key: number; moved?: boolean } | null>(null)
+  const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; tx: Snapshot; moved?: boolean } | null>(null)
   // Column/table-edge drag state captured when the drag starts.
   const colDragRef = useRef<
     | (EdgeHit & {
+        /** Document state at pointerdown, so the whole drag commits as one step. */
+        tx: Snapshot
         startX: number
         /** Column widths (% of the table) at drag start. */
         widths: number[]
@@ -215,25 +232,35 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const editingBoxIdRef = useRef(editingBoxId)
   editingBoxIdRef.current = editingBoxId
 
-  // Keyboard shortcuts, guarded so they never fire while typing in a form field
-  // or contentEditable (there the browser's native undo/editing applies):
-  // - Ctrl/⌘+Z / Ctrl+Y / ⌘+Shift+Z → undo/redo BOX operations
-  // - Backspace/Delete → remove the selected box; Escape → deselect (mirrors Deckdown)
+  // Undo/redo shortcuts. Captured before the browser so its own (unusable) undo
+  // never runs — everything routes to the single document history. The Markdown
+  // textarea and plain inputs keep their own native undo.
+  useEffect(() => {
+    const onUndoKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      const k = e.key.toLowerCase()
+      if (k === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+      } else if (k === 'y') {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', onUndoKey, true)
+    return () => window.removeEventListener('keydown', onUndoKey, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Box shortcuts, guarded so they never fire while typing in a field or contentEditable:
+  // Backspace/Delete → remove the selected box; Escape → deselect (mirrors Deckdown)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
-        // Only claim the shortcut when a box step exists; otherwise let the
-        // browser's document-level undo handle the flow text.
-        if (e.shiftKey ? boxRedo() : boxUndo()) e.preventDefault()
-        return
-      }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
-        if (boxRedo()) e.preventDefault()
-        return
-      }
 
       const id = selectedBoxIdRef.current
       if (!id || editingBoxIdRef.current) return
@@ -487,20 +514,25 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       const b = blockAncestor(range.startContainer, root)
       if (b) blocks.push(b)
     }
-    for (const el of blocks) el.style.textAlign = dir
+    withHistory(() => {
+      for (const el of blocks) el.style.textAlign = dir
+    })
     refreshActive(root)
-    syncActive()
+    syncActive({ silent: true })
   }
 
-  /** Push the current content of whichever surface was last active back to the parent. */
-  function syncActive() {
+  /**
+   * Push the current content of whichever surface was last active back to the parent.
+   * `silent` skips the history push — the caller already opened its own step.
+   */
+  function syncActive(opts: { silent?: boolean } = {}) {
     const surface = activeEditableRef.current
     if (!surface) return
     if (surface.classList.contains('doc-editable')) {
       onChange(cleanFlowHtml(surface))
     } else {
       const id = surface.dataset.boxId
-      if (id) patchBox(id, { html: surface.innerHTML })
+      if (id) patchBox(id, { html: surface.innerHTML }, { silent: opts.silent })
     }
   }
 
@@ -525,14 +557,16 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
 
   function exec(command: string, value?: string, css = false) {
     restore()
-    try {
-      document.execCommand('styleWithCSS', false, css ? 'true' : 'false')
-      document.execCommand(command, false, value)
-    } catch {
-      /* ignore */
-    }
+    withHistory(() => {
+      try {
+        document.execCommand('styleWithCSS', false, css ? 'true' : 'false')
+        document.execCommand(command, false, value)
+      } catch {
+        /* ignore */
+      }
+    })
     if (activeEditableRef.current) refreshActive(activeEditableRef.current)
-    syncActive()
+    syncActive({ silent: true })
   }
 
   function setBlock(tag: string) {
@@ -675,7 +709,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const tableW = table.getBoundingClientRect().width || 1
     const hostW = hostWidth(table)
     const geom = readTableGeom(table, hostW)
+    const tx = beginTx()
     colDragRef.current = {
+      tx,
       table,
       kind,
       index,
@@ -779,6 +815,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     // Commit the flow HTML directly: a column drag never places a caret, so
     // syncActive()'s "last active surface" may still be unset.
     if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
+    commitTx(d.tx) // the whole drag is one undo step
     // Style-only mutations aren't observed, and a resized table changes row
     // heights — repaginate so page breaks stay correct.
     paginateRef.current?.()
@@ -842,9 +879,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const row = cell?.parentElement as HTMLTableRowElement | undefined
     const table = cell?.closest('table') as HTMLTableElement | null
     if (!cell || !row || !table) return
-    fn(cell, row, table)
+    withHistory(() => fn(cell, row, table))
     if (activeEditableRef.current) refreshActive(activeEditableRef.current)
-    syncActive()
+    syncActive({ silent: true })
   }
 
   function addRow() {
@@ -912,92 +949,307 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     if (range.collapsed) return
     const cur = effectiveFs(range.startContainer, activeEditableRef.current)
     const nextPt = Math.max(MIN_PT, Math.min(MAX_PT, cur + delta))
-    const frag = range.extractContents()
-    frag.querySelectorAll?.('[data-fs]').forEach((elm) => {
-      const el = elm as HTMLElement
-      const bumped = Math.max(MIN_PT, Math.min(MAX_PT, Number(el.dataset.fs) + delta))
-      el.dataset.fs = String(bumped)
-      el.style.fontSize = `${bumped}pt`
+    withHistory(() => {
+      const frag = range.extractContents()
+      frag.querySelectorAll?.('[data-fs]').forEach((elm) => {
+        const el = elm as HTMLElement
+        const bumped = Math.max(MIN_PT, Math.min(MAX_PT, Number(el.dataset.fs) + delta))
+        el.dataset.fs = String(bumped)
+        el.style.fontSize = `${bumped}pt`
+      })
+      const span = document.createElement('span')
+      span.dataset.fs = String(nextPt)
+      span.style.fontSize = `${nextPt}pt`
+      span.appendChild(frag)
+      range.insertNode(span)
+      const newRange = document.createRange()
+      newRange.selectNodeContents(span)
+      sel.removeAllRanges()
+      sel.addRange(newRange)
+      savedRange.current = newRange.cloneRange()
     })
-    const span = document.createElement('span')
-    span.dataset.fs = String(nextPt)
-    span.style.fontSize = `${nextPt}pt`
-    span.appendChild(frag)
-    range.insertNode(span)
-    const newRange = document.createRange()
-    newRange.selectNodeContents(span)
-    sel.removeAllRanges()
-    sel.addRange(newRange)
-    savedRange.current = newRange.cloneRange()
-    syncActive()
+    syncActive({ silent: true })
   }
 
   // ---- Text boxes ----
 
-  // Snapshot history for box operations (add/move/resize/edit/delete), mirroring
-  // Deckdown's undoRef/redoRef + coalesceKey model: every mutation goes through
-  // commitBoxes(), and mutations sharing a key (one drag, one edit session)
-  // collapse into a single undo step. Flow-text undo stays native (execCommand).
-  const boxUndoRef = useRef<DocBox[][]>([])
-  const boxRedoRef = useRef<DocBox[][]>([])
-  const lastKeyRef = useRef<number | null>(null)
-  const keyCounterRef = useRef(0)
-  const editSessionKeyRef = useRef<number | null>(null)
+  // ---- Undo / redo -------------------------------------------------------
+  // ONE history for the whole document: the flowing HTML, the text boxes and the
+  // caret are snapshotted together, so every action is exactly one step in
+  // chronological order. The browser's own undo is intercepted and never used —
+  // its stack is document-wide (an undo inside a box would rewind the page), it
+  // only records execCommand edits (alignment, table edits and column drags mutate
+  // the DOM directly and were silently un-undoable), and its granularity is out of
+  // our hands. Typing is coalesced into bursts so it still feels native.
 
-  function commitBoxes(next: DocBox[], coalesceKey?: number) {
-    const sameBurst = coalesceKey != null && coalesceKey === lastKeyRef.current
-    if (!sameBurst) {
-      boxUndoRef.current.push(boxesRef.current)
-      if (boxUndoRef.current.length > 100) boxUndoRef.current.shift()
-      boxRedoRef.current = []
+  const undoStackRef = useRef<Snapshot[]>([])
+  const redoStackRef = useRef<Snapshot[]>([])
+  /** Non-null while a typing burst is open; the key identifies the surface. */
+  const burstRef = useRef<string | null>(null)
+  const burstTimer = useRef<number | null>(null)
+  /** True while applySnapshot rewrites the DOM, so its own events are ignored. */
+  const restoringRef = useRef(false)
+  const composingRef = useRef(false)
+  // Re-render the toolbar when the stacks change so the buttons reflect them.
+  const [histTick, setHistTick] = useState(0)
+
+  /** Path from a surface root to the caret, skipping pagination spacers. */
+  function captureSel(): SelPath | null {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return null
+    const range = sel.getRangeAt(0)
+    const surface = editableAncestor(range.startContainer)
+    if (!surface) return null
+    const path: number[] = []
+    let node: Node = range.startContainer
+    while (node !== surface) {
+      const parent: Node | null = node.parentNode
+      if (!parent) return null
+      let i = 0
+      for (const sib of Array.from(parent.childNodes)) {
+        if (sib === node) break
+        if (!(sib instanceof HTMLElement && sib.classList.contains('page-spacer'))) i++
+      }
+      path.unshift(i)
+      node = parent
     }
-    lastKeyRef.current = coalesceKey ?? null
-    onBoxesChange(next)
+    return { boxId: surface.dataset.boxId ?? null, path, offset: range.startOffset }
   }
 
-  /** Undo the last box operation. Returns false when there is nothing to undo. */
-  function boxUndo(): boolean {
-    const prev = boxUndoRef.current.pop()
+  /** Put the caret back where captureSel() found it (best effort, never throws). */
+  function applySel(sel: SelPath | null) {
+    if (!sel) return
+    const root = sel.boxId ? boxBodyRefs.current.get(sel.boxId) : editorRef.current
+    if (!root) return
+    let node: Node = root
+    for (const index of sel.path) {
+      const kids = Array.from(node.childNodes).filter(
+        (n) => !(n instanceof HTMLElement && n.classList.contains('page-spacer')),
+      )
+      const next = kids[Math.min(index, kids.length - 1)]
+      if (!next) break
+      node = next
+    }
+    const max = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? '').length : node.childNodes.length
+    const range = document.createRange()
+    try {
+      range.setStart(node, Math.min(sel.offset, max))
+    } catch {
+      range.selectNodeContents(root)
+      range.collapse(false)
+    }
+    range.collapse(true)
+    root.focus()
+    const s = window.getSelection()
+    s?.removeAllRanges()
+    s?.addRange(range)
+    // restore()/currentCell() would otherwise hold a Range into the replaced DOM.
+    savedRange.current = range.cloneRange()
+    activeEditableRef.current = root
+  }
+
+  /** The document as it stands right now. */
+  function readLive(): Snapshot {
+    const editingId = editingBoxIdRef.current
+    const liveBody = editingId ? boxBodyRefs.current.get(editingId) : undefined
+    // A box being edited has its latest text only in the DOM (the commit is debounced).
+    const boxes = liveBody
+      ? boxesRef.current.map((b) => (b.id === editingId ? { ...b, html: liveBody.innerHTML } : b))
+      : boxesRef.current
+    return { flow: editorRef.current ? cleanFlowHtml(editorRef.current) : '', boxes, sel: captureSel() }
+  }
+
+  function sameDoc(a: Snapshot, b: Snapshot): boolean {
+    return a.flow === b.flow && JSON.stringify(a.boxes) === JSON.stringify(b.boxes)
+  }
+
+  function pushSnapshot(snap: Snapshot) {
+    undoStackRef.current.push(snap)
+    if (undoStackRef.current.length > 200) undoStackRef.current.shift()
+    redoStackRef.current = []
+    setHistTick((t) => t + 1)
+  }
+
+  /** Run a programmatic mutation as exactly one undo step (no step if nothing changed). */
+  function withHistory<T>(fn: () => T): T {
+    endBurst()
+    const before = readLive()
+    const result = fn()
+    if (!sameDoc(before, readLive())) pushSnapshot(before)
+    return result
+  }
+
+  /** For gestures: capture at pointerdown, commit at pointerup only if changed. */
+  function beginTx(): Snapshot {
+    endBurst()
+    return readLive()
+  }
+  function commitTx(before: Snapshot) {
+    if (!sameDoc(before, readLive())) pushSnapshot(before)
+  }
+
+  // A run of typing in one surface collapses into a single step, ended by an idle
+  // pause, a caret move, a click, or any other kind of action.
+  const BURST_IDLE_MS = 700
+  function beginBurst(key: string) {
+    if (burstRef.current === key) return
+    endBurst()
+    pushSnapshot(readLive())
+    burstRef.current = key
+  }
+  function touchBurst() {
+    if (burstTimer.current) window.clearTimeout(burstTimer.current)
+    burstTimer.current = window.setTimeout(() => {
+      burstRef.current = null
+    }, BURST_IDLE_MS)
+  }
+  function endBurst() {
+    if (burstTimer.current) window.clearTimeout(burstTimer.current)
+    burstTimer.current = null
+    burstRef.current = null
+  }
+
+  function applySnapshot(s: Snapshot) {
+    restoringRef.current = true
+    try {
+      const el = editorRef.current
+      if (el && cleanFlowHtml(el) !== s.flow) {
+        if (emitTimer.current) window.clearTimeout(emitTimer.current)
+        el.innerHTML = s.flow
+        onChange(s.flow)
+      }
+      if (JSON.stringify(boxesRef.current) !== JSON.stringify(s.boxes)) {
+        boxesRef.current = s.boxes
+        onBoxesChange(s.boxes)
+      }
+      const ids = new Set(s.boxes.map((b) => b.id))
+      if (selectedBoxIdRef.current && !ids.has(selectedBoxIdRef.current)) setSelectedBoxId(null)
+      if (editingBoxIdRef.current && !ids.has(editingBoxIdRef.current)) setEditingBoxId(null)
+    } finally {
+      // Let React commit the box list before the caret is placed / pages recomputed.
+      requestAnimationFrame(() => {
+        const editingId = editingBoxIdRef.current
+        if (editingId) {
+          const body = boxBodyRefs.current.get(editingId)
+          const box = s.boxes.find((b) => b.id === editingId)
+          if (body && box && body.innerHTML !== box.html) body.innerHTML = box.html
+        }
+        applySel(s.sel)
+        paginateRef.current?.()
+        restoringRef.current = false
+      })
+    }
+  }
+
+  function undo(): boolean {
+    if (composingRef.current) return false
+    endBurst()
+    const prev = undoStackRef.current.pop()
     if (!prev) return false
-    boxRedoRef.current.push(boxesRef.current)
-    lastKeyRef.current = null
-    onBoxesChange(prev)
-    if (selectedBoxIdRef.current && !prev.some((b) => b.id === selectedBoxIdRef.current)) setSelectedBoxId(null)
-    if (editingBoxIdRef.current && !prev.some((b) => b.id === editingBoxIdRef.current)) setEditingBoxId(null)
+    redoStackRef.current.push(readLive())
+    applySnapshot(prev)
+    setHistTick((t) => t + 1)
     return true
   }
-
-  function boxRedo(): boolean {
-    const next = boxRedoRef.current.pop()
+  function redo(): boolean {
+    if (composingRef.current) return false
+    endBurst()
+    const next = redoStackRef.current.pop()
     if (!next) return false
-    boxUndoRef.current.push(boxesRef.current)
-    lastKeyRef.current = null
-    onBoxesChange(next)
-    if (selectedBoxIdRef.current && !next.some((b) => b.id === selectedBoxIdRef.current)) setSelectedBoxId(null)
-    if (editingBoxIdRef.current && !next.some((b) => b.id === editingBoxIdRef.current)) setEditingBoxId(null)
+    undoStackRef.current.push(readLive())
+    applySnapshot(next)
+    setHistTick((t) => t + 1)
     return true
   }
 
-  function patchBox(id: string, patch: Partial<DocBox>, coalesceKey?: number) {
-    commitBoxes(boxesRef.current.map((b) => (b.id === id ? { ...b, ...patch } : b)), coalesceKey)
+  // Typing/IME/paste in ANY editable surface (the page or a box body) feeds the
+  // same history. Native listeners: React's onBeforeInput is a synthetic polyfill
+  // whose inputType is unreliable.
+  useEffect(() => {
+    const inSurface = (t: EventTarget | null) => (t instanceof Node ? editableAncestor(t) : null)
+
+    const onBeforeInput = (e: Event) => {
+      if (restoringRef.current || composingRef.current) return
+      const ev = e as InputEvent
+      const surface = inSurface(ev.target)
+      if (!surface) return
+      const key = `type:${surface.dataset.boxId ?? 'flow'}`
+      const t = ev.inputType || ''
+      if (/^(insertText|insertCompositionText|deleteContent|deleteWord|deleteSoftLineBackward)/.test(t)) {
+        beginBurst(key)
+        touchBurst()
+      } else {
+        // Paste, Enter, drag-and-drop of text, formatting… each is its own step.
+        endBurst()
+        pushSnapshot(readLive())
+      }
+    }
+    const onCompStart = (e: Event) => {
+      if (restoringRef.current) return
+      const surface = inSurface(e.target)
+      if (!surface) return
+      endBurst()
+      pushSnapshot(readLive())
+      burstRef.current = `type:${surface.dataset.boxId ?? 'flow'}`
+      composingRef.current = true
+    }
+    const onCompEnd = () => {
+      composingRef.current = false
+      touchBurst()
+    }
+    // A caret move or a click ends the burst, so the next keystroke starts a step.
+    const onKeyDownEndBurst = (e: KeyboardEvent) => {
+      if (['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+        endBurst()
+      }
+    }
+    const onPointerDownEndBurst = () => endBurst()
+
+    document.addEventListener('beforeinput', onBeforeInput, true)
+    document.addEventListener('compositionstart', onCompStart, true)
+    document.addEventListener('compositionend', onCompEnd, true)
+    document.addEventListener('keydown', onKeyDownEndBurst, true)
+    document.addEventListener('pointerdown', onPointerDownEndBurst, true)
+    return () => {
+      document.removeEventListener('beforeinput', onBeforeInput, true)
+      document.removeEventListener('compositionstart', onCompStart, true)
+      document.removeEventListener('compositionend', onCompEnd, true)
+      document.removeEventListener('keydown', onKeyDownEndBurst, true)
+      document.removeEventListener('pointerdown', onPointerDownEndBurst, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function patchBox(id: string, patch: Partial<DocBox>, opts: { silent?: boolean } = {}) {
+    const before = opts.silent ? null : readLive()
+    const next = boxesRef.current.map((b) => (b.id === id ? { ...b, ...patch } : b))
+    boxesRef.current = next
+    if (before) pushSnapshot(before)
+    onBoxesChange(next)
   }
 
   function addBox() {
-    const box = newDocBox()
-    commitBoxes([...boxesRef.current, box])
-    setSelectedBoxId(box.id)
-    setEditingBoxId(null)
+    withHistory(() => {
+      const box = newDocBox()
+      boxesRef.current = [...boxesRef.current, box]
+      onBoxesChange(boxesRef.current)
+      setSelectedBoxId(box.id)
+      setEditingBoxId(null)
+    })
   }
 
   function deleteBox(id: string) {
-    commitBoxes(boxesRef.current.filter((b) => b.id !== id))
-    if (selectedBoxId === id) setSelectedBoxId(null)
-    if (editingBoxId === id) setEditingBoxId(null)
+    withHistory(() => {
+      boxesRef.current = boxesRef.current.filter((b) => b.id !== id)
+      onBoxesChange(boxesRef.current)
+      if (selectedBoxId === id) setSelectedBoxId(null)
+      if (editingBoxId === id) setEditingBoxId(null)
+    })
   }
 
-  /** Enter a box's text-editing mode (one editing session = one undo step). */
+  /** Enter a box's text-editing mode (a mode change is not a document change). */
   function startEditBox(id: string) {
-    editSessionKeyRef.current = keyCounterRef.current += 1
+    endBurst()
     setSelectedBoxId(id)
     setEditingBoxId(id)
   }
@@ -1024,7 +1276,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       oy: box.y,
       ow: box.w,
       oh: box.h,
-      key: (keyCounterRef.current += 1), // one drag = one undo step
+      tx: beginTx(), // the whole drag commits as one undo step
     }
     window.addEventListener('pointermove', onGestureMove)
     window.addEventListener('pointerup', onGestureUp)
@@ -1045,15 +1297,17 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       const pageW = wrapRef.current?.clientWidth ?? 760
       const others = boxesRef.current.filter((b) => b.id !== d.id)
       const snapped = snapBoxMove(px, py, box?.w ?? d.ow, box?.h ?? d.oh, pageW, others)
-      patchBox(d.id, { x: Math.max(0, Math.round(snapped.x)), y: Math.max(0, Math.round(snapped.y)) }, d.key)
+      patchBox(d.id, { x: Math.max(0, Math.round(snapped.x)), y: Math.max(0, Math.round(snapped.y)) }, { silent: true })
       setGuides({ v: snapped.v, h: snapped.h })
     } else {
-      patchBox(d.id, { w: Math.max(60, Math.round(d.ow + dx)), h: Math.max(36, Math.round(d.oh + dy)) }, d.key)
+      patchBox(d.id, { w: Math.max(60, Math.round(d.ow + dx)), h: Math.max(36, Math.round(d.oh + dy)) }, { silent: true })
     }
   }
   function onGestureUp() {
-    if (dragRef.current) setGuides({ v: null, h: null })
+    const d = dragRef.current
+    if (d) setGuides({ v: null, h: null })
     dragRef.current = null
+    if (d?.moved) commitTx(d.tx)
     document.body.classList.remove('doc-box-gesture')
     // Belt and braces: drop any stray selection so focus stays off the editables.
     const sel = window.getSelection()
@@ -1066,36 +1320,30 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   }
 
   /**
-   * Toolbar undo/redo, routed like the keyboard shortcut: text typed in an
-   * editable uses the browser's native undo; otherwise box operations undo first,
-   * falling back to native undo when the box history is empty.
+   * Toolbar undo/redo — the same single history the keyboard shortcut drives,
+   * so the button and Ctrl+Z can never disagree about what "one step" is.
    */
   function doUndo() {
-    const ae = document.activeElement as HTMLElement | null
-    if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
-      exec('undo')
-      return
-    }
-    if (!boxUndo()) exec('undo')
+    undo()
   }
   function doRedo() {
-    const ae = document.activeElement as HTMLElement | null
-    if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
-      exec('redo')
-      return
-    }
-    if (!boxRedo()) exec('redo')
+    redo()
   }
+
+  void histTick // the stacks live in refs; this state only forces the re-render
+  const canUndo = undoStackRef.current.length > 0
+  const canRedo = redoStackRef.current.length > 0
 
   // data-tip (Deckdown's CSS tooltip, 0.5s delay) instead of the native title
   // attribute, whose browser-controlled delay is noticeably slower.
-  const btn = (label: React.ReactNode, title: string, onClick: () => void, isActive = false, extraClass = '') => (
+  const btn = (label: React.ReactNode, title: string, onClick: () => void, isActive = false, extraClass = '', disabled = false) => (
     <button
       type="button"
       className={`det-btn${isActive ? ' active' : ''}${extraClass ? ' ' + extraClass : ''}`}
       data-tip={title}
       aria-label={title}
       aria-pressed={isActive}
+      disabled={disabled}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
@@ -1107,8 +1355,8 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     <div className="doc-editor">
       <div className="doc-editor-toolbar" role="toolbar" aria-label="書式">
         <div className="det-group">
-          {btn(<UndoIcon />, '元に戻す (Ctrl+Z)', doUndo)}
-          {btn(<RedoIcon />, 'やり直し (Ctrl+Y)', doRedo)}
+          {btn(<UndoIcon />, '元に戻す (Ctrl+Z)', doUndo, false, '', !canUndo)}
+          {btn(<RedoIcon />, 'やり直し (Ctrl+Y)', doRedo, false, '', !canRedo)}
         </div>
 
         <div className="det-group">
@@ -1328,11 +1576,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
                 onStartResize={(e) => startBoxGesture(e, box, 'resize')}
                 onEdit={() => startEditBox(box.id)}
                 onStopEdit={(nextHtml) => {
-                  patchBox(box.id, { html: nextHtml }, editSessionKeyRef.current ?? undefined)
+                  patchBox(box.id, { html: nextHtml }, { silent: true })
                   setEditingBoxId(null)
-                  editSessionKeyRef.current = null
                 }}
-                onChangeHtml={(nextHtml) => patchBox(box.id, { html: nextHtml }, editSessionKeyRef.current ?? undefined)}
+                onChangeHtml={(nextHtml) => patchBox(box.id, { html: nextHtml }, { silent: true })}
                 onDelete={() => deleteBox(box.id)}
                 registerBody={(el) => {
                   if (el) boxBodyRefs.current.set(box.id, el)
