@@ -714,6 +714,99 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     else table.style.removeProperty('margin-left')
   }
 
+  /**
+   * Width a column would need to show its longest cell on one line (Excel's
+   * "best fit"). Measured off-screen with wrapping disabled, inside the table's own
+   * parent so the probe inherits the sheet's font; explicit <br> breaks still count,
+   * so the result is the widest rendered line.
+   */
+  function naturalColWidthPx(table: HTMLTableElement, index: number): number {
+    const host = table.parentElement ?? document.body
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:absolute;left:-99999px;top:0;width:max-content;visibility:hidden;'
+    host.appendChild(probe)
+    let content = 0
+    let chrome = 0
+    try {
+      for (const tr of Array.from(table.querySelectorAll('tr'))) {
+        const cell = tr.children[index] as HTMLElement | undefined
+        if (!cell) continue
+        const cs = getComputedStyle(cell)
+        chrome = Math.max(
+          chrome,
+          parseFloat(cs.paddingLeft || '0') +
+            parseFloat(cs.paddingRight || '0') +
+            parseFloat(cs.borderLeftWidth || '0') +
+            parseFloat(cs.borderRightWidth || '0'),
+        )
+        const line = document.createElement('div')
+        line.style.cssText = `display:inline-block;white-space:nowrap;font-family:${cs.fontFamily};font-size:${cs.fontSize};font-weight:${cs.fontWeight};font-style:${cs.fontStyle};letter-spacing:${cs.letterSpacing};`
+        line.innerHTML = cell.innerHTML
+        probe.appendChild(line)
+        content = Math.max(content, line.getBoundingClientRect().width)
+        line.remove()
+      }
+    } finally {
+      probe.remove()
+    }
+    return Math.ceil(content + chrome) + 1 // +1 so the last glyph never clips
+  }
+
+  /**
+   * Excel-style best fit: size the column at this border to its longest content.
+   * An interior border trades with the next column (the table keeps its span); an
+   * outer edge resizes the table itself, exactly as dragging that border would.
+   */
+  function autoFitColumn(table: HTMLTableElement, kind: EdgeHit['kind'], index: number) {
+    withHistory(() => {
+      const widths = readColWidths(table)
+      writeColWidths(table, widths) // fixed layout, starting from what's on screen
+      const tableW = table.getBoundingClientRect().width || 1
+      const hostW = hostWidth(table)
+      const geom = readTableGeom(table, hostW)
+      const px = widths.map((p) => (p / 100) * tableW)
+      const minPx = (MIN_COL_PCT / 100) * tableW
+      const target = Math.max(minPx, naturalColWidthPx(table, index))
+      const next = px.slice()
+
+      if (kind === 'inner') {
+        const pair = px[index] + px[index + 1]
+        next[index] = Math.max(minPx, Math.min(pair - minPx, target))
+        next[index + 1] = pair - next[index]
+        const sum = next.reduce((a, b) => a + b, 0) || 1
+        writeColWidths(table, next.map((w) => (w / sum) * 100))
+        return
+      }
+
+      // Outer edge: the end column takes its ideal width and the table follows.
+      const others = px.reduce((a, b) => a + b, 0) - px[index]
+      const minTableW = (MIN_TABLE_PCT / 100) * hostW
+      let indentPx = (geom.indentPct / 100) * hostW
+      let newTableW = others + target
+      if (kind === 'left') {
+        const right = indentPx + (geom.widthPct / 100) * hostW
+        indentPx = Math.max(0, right - newTableW)
+        newTableW = right - indentPx
+      }
+      newTableW = Math.min(newTableW, hostW - indentPx)
+      if (newTableW < minTableW) newTableW = minTableW
+      indentPx = Math.min(indentPx, Math.max(0, hostW - newTableW))
+      next[index] = Math.max(minPx, newTableW - others)
+      let sum = next.reduce((a, b) => a + b, 0) || 1
+      if (sum > newTableW) {
+        const k = Math.max(0, (newTableW - next[index]) / (others || 1))
+        next.forEach((w, i) => {
+          if (i !== index) next[i] = w * k
+        })
+        sum = next.reduce((a, b) => a + b, 0) || 1
+      }
+      writeColWidths(table, next.map((w) => (w / sum) * 100))
+      writeTableGeom(table, (newTableW / hostW) * 100, (indentPx / hostW) * 100)
+    })
+    if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
+    paginateRef.current?.()
+  }
+
   /** Start a resize drag: an interior column border, or the table's own left/right edge. */
   function startColResize(e: React.PointerEvent, hit: EdgeHit) {
     const { table, kind, index } = hit
@@ -1572,6 +1665,17 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
             onPointerDown={(e) => {
               const hit = edgeHit(e)
               if (hit) startColResize(e, hit)
+            }}
+            onDoubleClick={(e) => {
+              // Excel's best fit. The two preceding pointerdowns each started a
+              // resize that committed nothing (the pointer never moved), so acting
+              // here is safe. Double-clicking inside a cell is untouched: edgeHit
+              // only answers near a border.
+              const hit = edgeHit(e)
+              if (!hit) return
+              e.preventDefault()
+              e.stopPropagation()
+              autoFitColumn(hit.table, hit.kind, hit.index)
             }}
             onMouseMove={(e) => {
               // Show the resize cursor only while hovering a draggable table border.
