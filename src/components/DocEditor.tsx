@@ -200,6 +200,8 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const boxBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const dragRef = useRef<{ mode: 'move' | 'resize'; id: string; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; tx: Snapshot; moved?: boolean } | null>(null)
   // Column/table-edge drag state captured when the drag starts.
+  /** When a column drag last committed, so a dblclick ending a drag isn't also a best fit. */
+  const lastColDragAtRef = useRef(0)
   const colDragRef = useRef<
     | (EdgeHit & {
         /** Document state at pointerdown, so the whole drag commits as one step. */
@@ -728,8 +730,22 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     let content = 0
     let chrome = 0
     try {
-      for (const tr of Array.from(table.querySelectorAll('tr'))) {
-        const cell = tr.children[index] as HTMLElement | undefined
+      // table.rows holds only THIS table's rows (a nested table's rows are not its
+      // own), and a cell's DOM index stops being its column index as soon as a row
+      // has a colspan — walk the spans and take only a cell that starts at, and
+      // covers just, this column. A merged cell belongs to no single column, so it
+      // is skipped, exactly as Excel's best fit ignores them.
+      for (const tr of Array.from(table.rows)) {
+        let at = 0
+        let cell: HTMLElement | undefined
+        for (const c of Array.from(tr.cells)) {
+          const span = c.colSpan || 1
+          if (at + span > index) {
+            if (at === index && span === 1) cell = c
+            break
+          }
+          at += span
+        }
         if (!cell) continue
         const cs = getComputedStyle(cell)
         chrome = Math.max(
@@ -771,7 +787,12 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
 
       if (kind === 'inner') {
         const pair = px[index] + px[index + 1]
-        next[index] = Math.max(minPx, Math.min(pair - minPx, target))
+        // The neighbour gives up only its own slack. Without this floor, a column
+        // whose ideal width can never be satisfied — a long URL, or an image whose
+        // intrinsic size the probe reports unclamped — would take the whole pair,
+        // crush the next column to one character per line, and still wrap itself.
+        const nbFloor = Math.max(minPx, Math.min(px[index + 1], naturalColWidthPx(table, index + 1)))
+        next[index] = Math.max(minPx, Math.min(Math.max(minPx, pair - nbFloor), target))
         next[index + 1] = pair - next[index]
         const sum = next.reduce((a, b) => a + b, 0) || 1
         writeColWidths(table, next.map((w) => (w / sum) * 100))
@@ -782,7 +803,9 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       const others = px.reduce((a, b) => a + b, 0) - px[index]
       const minTableW = (MIN_TABLE_PCT / 100) * hostW
       let indentPx = (geom.indentPct / 100) * hostW
-      let newTableW = others + target
+      // Clamp to the minimum BEFORE deriving the indent, or a left-edge fit would
+      // move the right edge it is supposed to keep pinned.
+      let newTableW = Math.max(minTableW, others + target)
       if (kind === 'left') {
         const right = indentPx + (geom.widthPct / 100) * hostW
         indentPx = Math.max(0, right - newTableW)
@@ -921,6 +944,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     window.removeEventListener('pointerup', onColResizeUp)
     window.removeEventListener('pointercancel', onColResizeUp)
     if (!d.moved) return // a click beside a border must not rewrite the document
+    lastColDragAtRef.current = Date.now()
     // Commit the flow HTML directly: a column drag never places a caret, so
     // syncActive()'s "last active surface" may still be unset.
     if (editorRef.current) onChange(cleanFlowHtml(editorRef.current))
@@ -954,6 +978,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       const r = cell.getBoundingClientRect()
       const index = Array.from((cell.parentElement as HTMLTableRowElement).children).indexOf(cell)
       if (e.clientX >= r.right - COL_GRAB_IN && index < colCount(table) - 1) return { table, kind: 'inner', index }
+      // The same border seen from the cell on its right: the band must be symmetric,
+      // or a pointer a pixel past the line (hand drift between the two presses of a
+      // double-click) silently misses it.
+      if (e.clientX <= r.left + COL_GRAB_IN && index > 0) return { table, kind: 'inner', index: index - 1 }
       return null
     }
     // Not over a cell: hit-test the outer edges against each table's own rect.
@@ -1675,6 +1703,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
               if (!hit) return
               e.preventDefault()
               e.stopPropagation()
+              // Either press of this pair actually dragged the border: that gesture
+              // already committed a width the user chose, so best fit must not
+              // overwrite it (and stack a second undo step) — the drag wins.
+              if (Date.now() - lastColDragAtRef.current < 700) return
               autoFitColumn(hit.table, hit.kind, hit.index)
             }}
             onMouseMove={(e) => {
