@@ -229,17 +229,30 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   const imageNames = Object.keys(images)
   const selectedBoxIdRef = useRef(selectedBoxId)
   selectedBoxIdRef.current = selectedBoxId
+  // When each surface last changed, so Ctrl+Z can pick the most recent one.
+  const fieldInputAtRef = useRef(0)
+  const historyAtRef = useRef(0)
   const editingBoxIdRef = useRef(editingBoxId)
   editingBoxIdRef.current = editingBoxId
 
-  // Undo/redo shortcuts. Captured before the browser so its own (unusable) undo
-  // never runs — everything routes to the single document history. The Markdown
-  // textarea and plain inputs keep their own native undo.
+  // Undo/redo shortcuts, captured before the browser so its own (unusable) undo
+  // never runs. Most-recent-action wins: a text field (the Markdown pane, the file
+  // name…) keeps its native undo only while ITS typing is the latest thing that
+  // happened. Otherwise Ctrl+Z steps back the document, even though the caret
+  // happens to sit in a field — clicking into the Markdown pane after a table edit
+  // must not strand that edit.
   useEffect(() => {
+    const onFieldInput = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) fieldInputAtRef.current = Date.now()
+    }
+    document.addEventListener('input', onFieldInput, true)
     const onUndoKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && fieldInputAtRef.current > historyAtRef.current) {
+        return // that field's own typing is the most recent action: let it undo itself
+      }
       const k = e.key.toLowerCase()
       if (k === 'z') {
         e.preventDefault()
@@ -251,7 +264,10 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
       }
     }
     window.addEventListener('keydown', onUndoKey, true)
-    return () => window.removeEventListener('keydown', onUndoKey, true)
+    return () => {
+      window.removeEventListener('keydown', onUndoKey, true)
+      document.removeEventListener('input', onFieldInput, true)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1064,6 +1080,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
   }
 
   function pushSnapshot(snap: Snapshot) {
+    historyAtRef.current = Date.now()
     undoStackRef.current.push(snap)
     if (undoStackRef.current.length > 200) undoStackRef.current.shift()
     redoStackRef.current = []
@@ -1147,6 +1164,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const prev = undoStackRef.current.pop()
     if (!prev) return false
     redoStackRef.current.push(readLive())
+    historyAtRef.current = Date.now()
     applySnapshot(prev)
     setHistTick((t) => t + 1)
     return true
@@ -1157,6 +1175,7 @@ export default function DocEditor({ html, images, onChange, boxes, onBoxesChange
     const next = redoStackRef.current.pop()
     if (!next) return false
     undoStackRef.current.push(readLive())
+    historyAtRef.current = Date.now()
     applySnapshot(next)
     setHistTick((t) => t + 1)
     return true
